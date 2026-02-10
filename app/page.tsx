@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, Settings2, Check } from 'lucide-react';
+import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, Settings2, Check, RefreshCw } from 'lucide-react';
 import { useWebLLM, playAudio, useHistory, useTheme, langConfigs, availableModels, allContexts, type Sentence } from '@/lib/llm';
 
 export default function Home() {
@@ -17,6 +17,7 @@ export default function Home() {
   const [selectedContexts, setSelectedContexts] = useState<string[]>(
     allContexts.slice(0, 5).map(c => c.id)
   );
+  const [regeneratingIdx, setRegeneratingIdx] = useState<number | null>(null);
   
   const { 
     isReady, 
@@ -27,7 +28,8 @@ export default function Home() {
     currentModel,
     loadingModelName,
     loadModel,
-    generateSentences 
+    generateSentences,
+    regenerateSingle 
   } = useWebLLM();
   const { history, addToHistory, clearHistory, isClient } = useHistory();
   const { theme, toggleTheme, mounted } = useTheme();
@@ -88,6 +90,36 @@ export default function Home() {
       return [...prev, contextId];
     });
   };
+
+  // 重新生成單條例句
+  const handleRegenerateSingle = useCallback(async (idx: number) => {
+    if (!result || !isReady || isGenerating) return;
+    const sentence = result.sentences[idx];
+    if (!sentence) return;
+
+    // 找到對應的 context id
+    const ctx = allContexts.find(c => c.name === sentence.context);
+    if (!ctx) return;
+
+    setRegeneratingIdx(idx);
+    const newSentence = await regenerateSingle(result.word, selectedLang, ctx.id);
+    
+    if (newSentence) {
+      setResult(prev => {
+        if (!prev) return prev;
+        const newSentences = [...prev.sentences];
+        newSentences[idx] = newSentence;
+        return { ...prev, sentences: newSentences };
+      });
+    }
+    setRegeneratingIdx(null);
+  }, [result, isReady, isGenerating, selectedLang, regenerateSingle]);
+
+  // 全部重新生成
+  const handleRegenerateAll = useCallback(async () => {
+    if (!result || !isReady || isGenerating) return;
+    handleSearch();
+  }, [result, isReady, isGenerating, handleSearch]);
 
   // 防止 hydration 錯誤
   if (!mounted || !isClient) {
@@ -412,10 +444,26 @@ export default function Home() {
 
             {/* Sentences */}
             <div className="p-6">
-              <h3 className="flex items-center gap-2 text-[var(--text-secondary)] font-semibold mb-5">
-                <BookOpen className="w-5 h-5" />
-                AI 生成例句 ({result.sentences.length}{isGenerating ? `/${selectedContexts.length}` : ''})
-              </h3>
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="flex items-center gap-2 text-[var(--text-secondary)] font-semibold">
+                  <BookOpen className="w-5 h-5" />
+                  AI 生成例句 ({result.sentences.length}{isGenerating ? `/${selectedContexts.length}` : ''})
+                </h3>
+                
+                {!isGenerating && result.sentences.length > 0 && (
+                  <button
+                    onClick={handleRegenerateAll}
+                    disabled={!!regeneratingIdx}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg
+                               bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] 
+                               text-[var(--text-secondary)] hover:text-[var(--text-primary)]
+                               transition-all duration-200 disabled:opacity-50"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    全部重新生成
+                  </button>
+                )}
+              </div>
               
               <div className="space-y-4">
                 {result.sentences.map((sentence, idx) => (
@@ -442,6 +490,17 @@ export default function Home() {
                         <p className="text-[var(--text-secondary)] text-sm">{sentence.translation}</p>
                       </div>
                       
+                      <div className="flex flex-col gap-2">
+                      <button
+                        onClick={() => handleRegenerateSingle(idx)}
+                        disabled={regeneratingIdx !== null || isGenerating}
+                        className={`p-2 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--border)]
+                                   transition-all duration-200 disabled:opacity-50
+                                   ${regeneratingIdx === idx ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                        title="重新生成此例句"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${regeneratingIdx === idx ? 'animate-spin' : ''}`} />
+                      </button>
                       <button
                         onClick={() => playAudio(sentence.original, selectedLang)}
                         className="p-2 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--border)]
@@ -449,6 +508,7 @@ export default function Home() {
                       >
                         <Volume2 className="w-4 h-4" />
                       </button>
+                      </div>
                     </div>
                   </div>
                 ))}

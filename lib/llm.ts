@@ -126,21 +126,21 @@ export const langConfigs: Record<string, { placeholder: string; icon: string; vo
     icon: '🇯🇵', 
     voice: 'ja-JP', 
     name: '日本語',
-    systemPrompt: '你是日語教學助手。請用用戶提供的單字生成自然的日文例句，並提供中文翻譯。格式：日文例句|中文翻譯。只輸出這個格式，不需要其他解釋。'
+    systemPrompt: '你是日語教學助手。用戶會提供一個單字，你必須用這個單字造一個完整的日文句子（至少8個字），並附上中文翻譯。\n嚴格按此格式輸出：完整日文句子|中文翻譯\n注意：必須是完整句子，不能只輸出單字或詞語。不要輸出任何解釋。\n範例：今日は天気がいいです|今天天氣很好'
   },
   en: { 
     placeholder: 'Type English...', 
     icon: '🇬🇧', 
     voice: 'en-US', 
     name: 'English',
-    systemPrompt: 'You are an English teaching assistant. Generate a natural English sentence using the provided word, and provide Chinese translation. Format: English sentence|中文翻譯. Output only this format, no other explanation.'
+    systemPrompt: 'You are an English teaching assistant. The user provides a word. You MUST generate a complete English sentence (at least 5 words) using it, with Chinese translation.\nStrictly follow this format: Complete English sentence|中文翻譯\nIMPORTANT: Output a FULL sentence, NOT just the word. No explanation.\nExample: The weather is beautiful today|今天天氣很美'
   },
   zh: { 
     placeholder: '輸入中文...', 
     icon: '🇹🇼', 
     voice: 'zh-TW', 
     name: '中文',
-    systemPrompt: '你是中文教學助手。請用用戶提供的單字生成自然的中文例句，並提供英文翻譯。格式：中文例句|English translation。只輸出這個格式，不需要其他解釋。'
+    systemPrompt: '你是中文教學助手。用戶會提供一個單字，你必須用這個單字造一個完整的中文句子（至少8個字），並附上英文翻譯。\n嚴格按此格式輸出：完整中文句子|English translation\n注意：必須是完整句子，不能只輸出單字或詞語。不要輸出任何解釋。\n範例：我每天都會去公園散步|I go for a walk in the park every day'
   },
 };
 
@@ -186,6 +186,68 @@ function stripThinkingTags(text: string): string {
   }
   
   return cleaned;
+}
+
+// 生成單條例句的核心邏輯（支持重試）
+async function generateOneSentence(
+  engine: any,
+  config: { systemPrompt: string },
+  word: string,
+  contextName: string,
+  contextPrompt: string,
+  lang: string,
+  attempt = 1
+): Promise<Sentence | null> {
+  const MAX_ATTEMPTS = 2;
+  const sentenceStartTime = performance.now();
+  
+  const response = await engine.chat.completions.create({
+    messages: [
+      { role: 'system', content: config.systemPrompt },
+      { role: 'user', content: `單字：「${word}」\n語境：${contextPrompt}\n\n請用「${word}」造一個完整的句子，格式：句子|翻譯` }
+    ],
+    temperature: 0.7,
+    max_tokens: 200,
+  });
+
+  const rawGenerated = (response.choices?.[0]?.message?.content || '').trim();
+  const generated = stripThinkingTags(rawGenerated);
+
+  const sentenceTime = ((performance.now() - sentenceStartTime) / 1000).toFixed(1);
+  console.log(`[WebLLM]   📝 [${contextName}] ${sentenceTime}s (attempt ${attempt}) - 原始: "${rawGenerated.substring(0, 100)}"`);
+  if (rawGenerated !== generated) {
+    console.log(`[WebLLM]   🧹 已清除 thinking 標籤, 清理後: "${generated.substring(0, 100)}"`);
+  }
+
+  let sentence: Sentence | null = null;
+
+  // 解析 "原文|翻譯" 格式
+  if (generated && generated.includes('|')) {
+    const parts = generated.split('|');
+    const original = parts[0].trim();
+    const translation = parts.slice(1).join('|').trim();
+    // 驗證是完整句子（不只是單字重複）
+    if (original && translation && original.length > 4 && original.length < 300 
+        && original !== word && original.length > word.length + 2) {
+      sentence = { original, translation, context: contextName };
+    }
+  }
+
+  // 備用方案：沒有 | 但有足夠長度的內容
+  if (!sentence && generated && generated.length > 6 && generated.length < 300 
+      && generated !== word && generated.length > word.length + 2) {
+    console.log(`[WebLLM]   ⚠️ 未按格式輸出，使用翻譯 API`);
+    const translation = await translate(generated, lang);
+    sentence = { original: generated, translation, context: contextName };
+  }
+
+  // 如果結果不完整（太短或只是單字），重試一次
+  if (!sentence && attempt < MAX_ATTEMPTS) {
+    console.log(`[WebLLM]   🔄 輸出不完整，重試第 ${attempt + 1} 次...`);
+    return generateOneSentence(engine, config, word, contextName, contextPrompt, lang, attempt + 1);
+  }
+
+  return sentence;
 }
 
 // WebLLM Hook
@@ -294,49 +356,9 @@ export function useWebLLM() {
 
     for (const { name, prompt } of selectedContexts) {
       try {
-        const sentenceStartTime = performance.now();
-        
-        const response = await chatRef.current.chat.completions.create({
-          messages: [
-            { role: 'system', content: config.systemPrompt },
-            { role: 'user', content: `單字："${word}"\n語境：${prompt}\n\n請生成一個自然的例句：` }
-          ],
-          temperature: 0.7,
-          max_tokens: 120,
-        });
-        
-        const rawGenerated = (response.choices?.[0]?.message?.content || '').trim();
-        // 清除 thinking 標籤（Qwen3 等推理模型）
-        const generated = stripThinkingTags(rawGenerated);
-        
-        const sentenceTime = ((performance.now() - sentenceStartTime) / 1000).toFixed(1);
-        console.log(`[WebLLM]   📝 [${name}] ${sentenceTime}s - 原始: "${rawGenerated.substring(0, 80)}..."`);
-        if (rawGenerated !== generated) {
-          console.log(`[WebLLM]   🧹 已清除 thinking 標籤, 清理後: "${generated.substring(0, 80)}..."`);
-        }
-        
-        let sentence: Sentence | null = null;
-        
-        // 解析 "原文|翻譯" 格式
-        if (generated && generated.includes('|')) {
-          const parts = generated.split('|');
-          const original = parts[0].trim();
-          const translation = parts.slice(1).join('|').trim(); // 翻譯部分可能包含 |
-          if (original && translation && original.length > 2 && original.length < 300) {
-            sentence = { original, translation, context: name };
-          }
-        }
-        
-        // 備用方案：如果 LLM 沒有按格式輸出，仍使用翻譯 API
-        if (!sentence && generated && generated.length > 3 && generated.length < 300) {
-          console.log(`[WebLLM]   ⚠️ 未按格式輸出，使用翻譯 API`);
-          const translation = await translate(generated, lang);
-          sentence = { original: generated, translation, context: name };
-        }
-        
+        const sentence = await generateOneSentence(chatRef.current, config, word, name, prompt, lang);
         if (sentence) {
           sentences.push(sentence);
-          // 逐條回調通知 UI
           if (onSentence) {
             onSentence(sentence);
           }
@@ -352,6 +374,29 @@ export function useWebLLM() {
     return sentences;
   }, [isReady]);
 
+  // 重新生成單條例句
+  const regenerateSingle = useCallback(async (
+    word: string,
+    lang: string,
+    contextId: string
+  ): Promise<Sentence | null> => {
+    if (!chatRef.current || !isReady) return null;
+    
+    const ctx = allContexts.find(c => c.id === contextId);
+    if (!ctx) return null;
+    
+    const config = langConfigs[lang];
+    console.log(`[WebLLM] 🔄 重新生成: "${word}" [${ctx.name}]`);
+    
+    try {
+      const sentence = await generateOneSentence(chatRef.current, config, word, ctx.name, ctx.prompt, lang);
+      return sentence;
+    } catch (e) {
+      console.error('[WebLLM] ❌ Regenerate failed:', e);
+      return null;
+    }
+  }, [isReady]);
+
   return { 
     isReady, 
     isLoading, 
@@ -362,7 +407,8 @@ export function useWebLLM() {
     loadingModelName,
     availableModels,
     loadModel,
-    generateSentences 
+    generateSentences,
+    regenerateSingle 
   };
 }
 
