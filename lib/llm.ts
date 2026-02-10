@@ -144,13 +144,26 @@ export const langConfigs: Record<string, { placeholder: string; icon: string; vo
   },
 };
 
-// 語境配置
-const contexts = [
-  { name: '日常對話', desc: 'daily conversation', prompt: '日常對話的例句' },
-  { name: '工作場景', desc: 'work situation', prompt: '工作場景的例句' },
-  { name: '情感表達', desc: 'emotional expression', prompt: '情感表達的例句' },
-  { name: '描述事物', desc: 'describing something', prompt: '描述事物的例句' },
-  { name: '請求幫助', desc: 'asking for help', prompt: '請求幫助的例句' },
+// 語境配置（導出供 UI 使用）
+export interface ContextConfig {
+  id: string;
+  name: string;
+  desc: string;
+  prompt: string;
+  icon: string;
+}
+
+export const allContexts: ContextConfig[] = [
+  { id: 'daily', name: '日常對話', desc: 'daily conversation', prompt: '日常對話的例句', icon: '💬' },
+  { id: 'work', name: '工作場景', desc: 'work situation', prompt: '工作場景的例句', icon: '💼' },
+  { id: 'emotion', name: '情感表達', desc: 'emotional expression', prompt: '情感表達的例句', icon: '❤️' },
+  { id: 'describe', name: '描述事物', desc: 'describing something', prompt: '描述事物的例句', icon: '🔍' },
+  { id: 'help', name: '請求幫助', desc: 'asking for help', prompt: '請求幫助的例句', icon: '🙏' },
+  { id: 'travel', name: '旅行出遊', desc: 'travel and tourism', prompt: '旅行出遊的例句', icon: '✈️' },
+  { id: 'food', name: '美食料理', desc: 'food and cooking', prompt: '美食料理的例句', icon: '🍜' },
+  { id: 'literature', name: '文學書面', desc: 'literary expression', prompt: '文學書面語的例句', icon: '📚' },
+  { id: 'casual', name: '口語俚語', desc: 'slang and casual', prompt: '口語或俚語的例句', icon: '😎' },
+  { id: 'academic', name: '學術正式', desc: 'academic and formal', prompt: '學術或正式場合的例句', icon: '🎓' },
 ];
 
 // 清除 AI 輸出中的 thinking 標籤（Qwen3 等推理模型會輸出 <think>...</think>）
@@ -161,7 +174,18 @@ function stripThinkingTags(text: string): string {
   cleaned = cleaned.replace(/<think>[\s\S]*/gi, '');
   // 移除殘留的 </think>
   cleaned = cleaned.replace(/<\/think>/gi, '');
-  return cleaned.trim();
+  cleaned = cleaned.trim();
+  
+  // 如果清理後有多行，嘗試找到包含 | 的那行
+  if (cleaned.includes('\n')) {
+    const lines = cleaned.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+    const pipeLine = lines.find((l: string) => l.includes('|'));
+    if (pipeLine) return pipeLine;
+    // 沒有 | 就取最後一行（通常是答案）
+    return lines[lines.length - 1] || cleaned;
+  }
+  
+  return cleaned;
 }
 
 // WebLLM Hook
@@ -250,7 +274,9 @@ export function useWebLLM() {
 
   const generateSentences = useCallback(async (
     word: string,
-    lang: string
+    lang: string,
+    selectedContextIds?: string[],
+    onSentence?: (sentence: Sentence) => void
   ): Promise<Sentence[]> => {
     if (!chatRef.current || !isReady) return [];
 
@@ -260,8 +286,13 @@ export function useWebLLM() {
     
     const sentences: Sentence[] = [];
     const config = langConfigs[lang];
+    
+    // 根據用戶選擇過濾語境
+    const selectedContexts = selectedContextIds && selectedContextIds.length > 0
+      ? allContexts.filter(c => selectedContextIds.includes(c.id))
+      : allContexts.slice(0, 5); // 默認前5個
 
-    for (const { name, prompt } of contexts) {
+    for (const { name, prompt } of selectedContexts) {
       try {
         const sentenceStartTime = performance.now();
         
@@ -284,25 +315,31 @@ export function useWebLLM() {
           console.log(`[WebLLM]   🧹 已清除 thinking 標籤, 清理後: "${generated.substring(0, 80)}..."`);
         }
         
+        let sentence: Sentence | null = null;
+        
         // 解析 "原文|翻譯" 格式
         if (generated && generated.includes('|')) {
-          const [original, translation] = generated.split('|').map((s: string) => s.trim());
-          if (original && translation && original.length > 3 && original.length < 200) {
-            sentences.push({
-              original,
-              translation,
-              context: name,
-            });
+          const parts = generated.split('|');
+          const original = parts[0].trim();
+          const translation = parts.slice(1).join('|').trim(); // 翻譯部分可能包含 |
+          if (original && translation && original.length > 2 && original.length < 300) {
+            sentence = { original, translation, context: name };
           }
-        } else if (generated && generated.length > 5 && generated.length < 200) {
-          // 備用方案：如果 LLM 沒有按格式輸出，仍使用翻譯 API
+        }
+        
+        // 備用方案：如果 LLM 沒有按格式輸出，仍使用翻譯 API
+        if (!sentence && generated && generated.length > 3 && generated.length < 300) {
           console.log(`[WebLLM]   ⚠️ 未按格式輸出，使用翻譯 API`);
           const translation = await translate(generated, lang);
-          sentences.push({
-            original: generated,
-            translation,
-            context: name,
-          });
+          sentence = { original: generated, translation, context: name };
+        }
+        
+        if (sentence) {
+          sentences.push(sentence);
+          // 逐條回調通知 UI
+          if (onSentence) {
+            onSentence(sentence);
+          }
         }
       } catch (e) {
         console.error('[WebLLM]   ❌ Generation failed:', e);
@@ -312,7 +349,7 @@ export function useWebLLM() {
     const totalTime = ((performance.now() - totalStartTime) / 1000).toFixed(1);
     console.log(`[WebLLM] ✅ 生成完成: ${sentences.length} 個例句，總耗時 ${totalTime}s`);
     setIsGenerating(false);
-    return sentences.slice(0, 5);
+    return sentences;
   }, [isReady]);
 
   return { 

@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown } from 'lucide-react';
-import { useWebLLM, playAudio, useHistory, useTheme, langConfigs, availableModels } from '@/lib/llm';
+import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, Settings2, Check } from 'lucide-react';
+import { useWebLLM, playAudio, useHistory, useTheme, langConfigs, availableModels, allContexts, type Sentence } from '@/lib/llm';
 
 export default function Home() {
   const [input, setInput] = useState('');
@@ -13,6 +13,10 @@ export default function Home() {
     sentences: Array<{ original: string; translation: string; context: string }>;
   } | null>(null);
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showContextSelector, setShowContextSelector] = useState(false);
+  const [selectedContexts, setSelectedContexts] = useState<string[]>(
+    allContexts.slice(0, 5).map(c => c.id)
+  );
   
   const { 
     isReady, 
@@ -34,18 +38,29 @@ export default function Home() {
     if (!input.trim() || !isReady) return;
 
     const word = input.trim();
-    const sentences = await generateSentences(word, selectedLang);
-
-    if (sentences.length === 0) return;
-
+    
+    // 初始化 result，立即顯示卡片（空例句列表）
     setResult({
       word,
       meaning: `${currentModelConfig?.name || 'AI'} 生成`,
-      sentences,
+      sentences: [],
     });
 
+    // 逐條回調：每生成一條就更新 UI
+    const onSentence = (sentence: Sentence) => {
+      setResult(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          sentences: [...prev.sentences, sentence],
+        };
+      });
+    };
+
+    await generateSentences(word, selectedLang, selectedContexts, onSentence);
+
     addToHistory(word, selectedLang);
-  }, [input, selectedLang, isReady, generateSentences, addToHistory, currentModelConfig]);
+  }, [input, selectedLang, isReady, generateSentences, addToHistory, currentModelConfig, selectedContexts]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSearch();
@@ -61,6 +76,17 @@ export default function Home() {
     setShowModelSelector(false);
     setResult(null);
     await loadModel(modelId);
+  };
+
+  const toggleContext = (contextId: string) => {
+    setSelectedContexts(prev => {
+      if (prev.includes(contextId)) {
+        // 至少保留一個
+        if (prev.length <= 1) return prev;
+        return prev.filter(id => id !== contextId);
+      }
+      return [...prev, contextId];
+    });
   };
 
   // 防止 hydration 錯誤
@@ -249,6 +275,68 @@ export default function Home() {
           ))}
         </div>
 
+        {/* Context Selector */}
+        <div className="mb-6 relative">
+          <button
+            onClick={() => setShowContextSelector(!showContextSelector)}
+            className="w-full p-3 bg-[var(--card)] border border-[var(--border)] rounded-xl
+                       flex items-center justify-between
+                       hover:border-[var(--accent)] transition-colors text-sm"
+          >
+            <div className="flex items-center gap-2">
+              <Settings2 className="w-4 h-4 text-[var(--accent)]" />
+              <span className="font-medium">語境設定</span>
+              <span className="text-[var(--text-tertiary)]">
+                · 已選 {selectedContexts.length} 種
+              </span>
+            </div>
+            <ChevronDown className={`w-4 h-4 transition-transform ${showContextSelector ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showContextSelector && (
+            <div className="absolute top-full left-0 right-0 mt-2
+                           bg-[var(--card)] border border-[var(--border)] rounded-xl
+                           shadow-xl z-40 animate-fade-in p-3">
+              <p className="px-2 py-1 text-xs font-medium text-[var(--text-tertiary)] uppercase mb-2">
+                選擇要生成的語境類別（至少 1 種）
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {allContexts.map((ctx) => {
+                  const isSelected = selectedContexts.includes(ctx.id);
+                  return (
+                    <button
+                      key={ctx.id}
+                      onClick={() => toggleContext(ctx.id)}
+                      className={`p-2.5 rounded-lg text-left transition-all text-sm flex items-center gap-2
+                                 ${isSelected
+                                   ? 'bg-[var(--accent)]/10 border border-[var(--accent)] text-[var(--accent)]'
+                                   : 'bg-[var(--bg-secondary)] border border-transparent hover:bg-[var(--bg-tertiary)]'}`}
+                    >
+                      <span>{ctx.icon}</span>
+                      <span className="flex-1">{ctx.name}</span>
+                      {isSelected && <Check className="w-3.5 h-3.5" />}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2 mt-3 pt-2 border-t border-[var(--border)]">
+                <button
+                  onClick={() => setSelectedContexts(allContexts.map(c => c.id))}
+                  className="flex-1 text-xs py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                >
+                  全選
+                </button>
+                <button
+                  onClick={() => setSelectedContexts(allContexts.slice(0, 3).map(c => c.id))}
+                  className="flex-1 text-xs py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                >
+                  精簡 (3)
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Search Box */}
         <div className="relative mb-8 group">
           <div className="absolute inset-0 bg-gradient-to-r from-gray-500/20 to-gray-500/20 rounded-2xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity" />
@@ -282,33 +370,21 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Generating Animation */}
+        {/* Generating Status */}
         {isGenerating && (
-          <div className="mb-8 p-6 bg-[var(--card)] border border-[var(--border)] rounded-2xl animate-fade-in">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="relative">
-                <Sparkles className="w-6 h-6 text-[var(--accent)] animate-pulse" />
-              </div>
-              <span className="font-medium">
-                {currentModelConfig?.name} 正在生成例句...
-              </span>
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-[var(--card)] border border-[var(--border)] rounded-xl animate-fade-in">
+            <div className="relative">
+              <Sparkles className="w-5 h-5 text-[var(--accent)] animate-pulse" />
             </div>
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="flex gap-3 animate-pulse" style={{ animationDelay: `${i * 0.2}s` }}>
-                  <div className="h-4 w-16 bg-[var(--bg-tertiary)] rounded-full" />
-                  <div className="h-4 flex-1 bg-[var(--bg-secondary)] rounded-full" />
-                </div>
-              ))}
-            </div>
-            <p className="mt-4 text-xs text-[var(--text-tertiary)]">
-              生成 5 個不同語境的例句，請稍候...
-            </p>
+            <span className="text-sm font-medium">
+              {currentModelConfig?.name} 正在生成例句... ({result?.sentences.length || 0}/{selectedContexts.length})
+            </span>
+            <Loader2 className="w-4 h-4 animate-spin text-[var(--text-tertiary)] ml-auto" />
           </div>
         )}
 
         {/* Result */}
-        {result && !isLoading && !isGenerating && (
+        {result && !isLoading && (
           <div className="mb-8 bg-[var(--card)] border border-[var(--border)] rounded-2xl overflow-hidden animate-slide-up shadow-lg">
             {/* Word Header */}
             <div className="p-6 border-b border-[var(--border)]">
@@ -338,7 +414,7 @@ export default function Home() {
             <div className="p-6">
               <h3 className="flex items-center gap-2 text-[var(--text-secondary)] font-semibold mb-5">
                 <BookOpen className="w-5 h-5" />
-                AI 生成例句 ({result.sentences.length})
+                AI 生成例句 ({result.sentences.length}{isGenerating ? `/${selectedContexts.length}` : ''})
               </h3>
               
               <div className="space-y-4">
@@ -374,6 +450,20 @@ export default function Home() {
                         <Volume2 className="w-4 h-4" />
                       </button>
                     </div>
+                  </div>
+                ))}
+                
+                {/* Skeleton placeholders for sentences being generated */}
+                {isGenerating && Array.from({ length: selectedContexts.length - result.sentences.length }).map((_, i) => (
+                  <div
+                    key={`skeleton-${i}`}
+                    className="p-4 bg-[var(--bg-secondary)] rounded-xl animate-pulse"
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="h-5 w-16 bg-[var(--bg-tertiary)] rounded-full" />
+                    </div>
+                    <div className="h-5 w-4/5 bg-[var(--bg-tertiary)] rounded mb-2" />
+                    <div className="h-4 w-3/5 bg-[var(--bg-tertiary)] rounded" />
                   </div>
                 ))}
               </div>
