@@ -17,9 +17,11 @@ export default function Home() {
   const { 
     isReady, 
     isLoading, 
+    isGenerating,
     progress, 
     error, 
     currentModel,
+    loadingModelName,
     loadModel,
     generateSentences 
   } = useWebLLM();
@@ -168,18 +170,24 @@ export default function Home() {
         <div className={`mb-6 inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm w-full justify-center ${
           isLoading ? 'bg-yellow-500/10 text-yellow-600' :
           error ? 'bg-red-500/10 text-red-600' :
+          isGenerating ? 'bg-blue-500/10 text-blue-600' :
           isReady ? 'bg-green-500/10 text-green-600' :
           'bg-[var(--bg-secondary)] text-[var(--text-secondary)]'
         }`}>
           {isLoading ? (
             <>
               <Download className="w-4 h-4 animate-bounce" />
-              正在下載 {currentModelConfig?.name}...
+              正在下載 {loadingModelName || currentModelConfig?.name}...
             </>
           ) : error ? (
             <>
               <span className="w-2 h-2 rounded-full bg-red-500" />
               {error}
+            </>
+          ) : isGenerating ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              {currentModelConfig?.name} 生成中...
             </>
           ) : isReady ? (
             <>
@@ -199,7 +207,7 @@ export default function Home() {
           <div className="mb-8 p-6 bg-[var(--card)] border border-[var(--border)] rounded-2xl animate-fade-in">
             <div className="flex items-center gap-3 mb-4">
               <Download className="w-6 h-6 animate-bounce text-[var(--accent)]" />
-              <span className="font-medium">正在載入 {currentModelConfig?.name}...</span>
+              <span className="font-medium">正在載入 {loadingModelName || currentModelConfig?.name}...</span>
             </div>
             
             <div className="w-full h-3 bg-[var(--bg-secondary)] rounded-full overflow-hidden">
@@ -260,13 +268,13 @@ export default function Home() {
           
           <button
             onClick={handleSearch}
-            disabled={isLoading || !input.trim() || !isReady}
+            disabled={isLoading || isGenerating || !input.trim() || !isReady}
             className="absolute right-3 top-1/2 -translate-y-1/2 p-3 
                        bg-[var(--accent)] text-[var(--bg-primary)] rounded-xl
                        hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed
                        transition-all duration-200"
           >
-            {isLoading ? (
+            {isLoading || isGenerating ? (
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : (
               <Search className="w-5 h-5" />
@@ -274,8 +282,33 @@ export default function Home() {
           </button>
         </div>
 
+        {/* Generating Animation */}
+        {isGenerating && (
+          <div className="mb-8 p-6 bg-[var(--card)] border border-[var(--border)] rounded-2xl animate-fade-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="relative">
+                <Sparkles className="w-6 h-6 text-[var(--accent)] animate-pulse" />
+              </div>
+              <span className="font-medium">
+                {currentModelConfig?.name} 正在生成例句...
+              </span>
+            </div>
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex gap-3 animate-pulse" style={{ animationDelay: `${i * 0.2}s` }}>
+                  <div className="h-4 w-16 bg-[var(--bg-tertiary)] rounded-full" />
+                  <div className="h-4 flex-1 bg-[var(--bg-secondary)] rounded-full" />
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-[var(--text-tertiary)]">
+              生成 5 個不同語境的例句，請稍候...
+            </p>
+          </div>
+        )}
+
         {/* Result */}
-        {result && !isLoading && (
+        {result && !isLoading && !isGenerating && (
           <div className="mb-8 bg-[var(--card)] border border-[var(--border)] rounded-2xl overflow-hidden animate-slide-up shadow-lg">
             {/* Word Header */}
             <div className="p-6 border-b border-[var(--border)]">

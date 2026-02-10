@@ -153,13 +153,26 @@ const contexts = [
   { name: '請求幫助', desc: 'asking for help', prompt: '請求幫助的例句' },
 ];
 
+// 清除 AI 輸出中的 thinking 標籤（Qwen3 等推理模型會輸出 <think>...</think>）
+function stripThinkingTags(text: string): string {
+  // 移除 <think>...</think> 區塊（包含換行）
+  let cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  // 移除未閉合的 <think>... 區塊
+  cleaned = cleaned.replace(/<think>[\s\S]*/gi, '');
+  // 移除殘留的 </think>
+  cleaned = cleaned.replace(/<\/think>/gi, '');
+  return cleaned.trim();
+}
+
 // WebLLM Hook
 export function useWebLLM() {
   const [isReady, setIsReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<LoadingProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [currentModel, setCurrentModel] = useState<string>('llama-3.2-1b');
+  const [loadingModelName, setLoadingModelName] = useState<string | null>(null);
   const chatRef = useRef<any>(null);
   const isClient = typeof window !== 'undefined';
 
@@ -173,6 +186,7 @@ export function useWebLLM() {
     try {
       setIsLoading(true);
       setError(null);
+      setLoadingModelName(modelConfig.name);
       
       // 如果已有模型，先卸載
       if (chatRef.current) {
@@ -183,6 +197,9 @@ export function useWebLLM() {
         }
         chatRef.current = null;
       }
+      
+      const loadStartTime = performance.now();
+      console.log(`[WebLLM] 開始載入模型: ${modelConfig.name} (${modelConfig.modelId})`);
       
       // 使用 CreateMLCEngine API
       const engine = await webllm.CreateMLCEngine(modelConfig.modelId, {
@@ -195,6 +212,9 @@ export function useWebLLM() {
           }
         },
       });
+      
+      const loadTime = ((performance.now() - loadStartTime) / 1000).toFixed(1);
+      console.log(`[WebLLM] ✅ 模型載入完成: ${modelConfig.name}，耗時 ${loadTime}s`);
       
       chatRef.current = engine;
       setCurrentModel(modelId);
@@ -219,6 +239,7 @@ export function useWebLLM() {
     } finally {
       setIsLoading(false);
       setProgress(null);
+      setLoadingModelName(null);
     }
   }, [isClient]);
 
@@ -233,11 +254,17 @@ export function useWebLLM() {
   ): Promise<Sentence[]> => {
     if (!chatRef.current || !isReady) return [];
 
+    setIsGenerating(true);
+    const totalStartTime = performance.now();
+    console.log(`[WebLLM] 🔄 開始生成例句: "${word}" (${lang})`);
+    
     const sentences: Sentence[] = [];
     const config = langConfigs[lang];
 
     for (const { name, prompt } of contexts) {
       try {
+        const sentenceStartTime = performance.now();
+        
         const response = await chatRef.current.chat.completions.create({
           messages: [
             { role: 'system', content: config.systemPrompt },
@@ -247,7 +274,15 @@ export function useWebLLM() {
           max_tokens: 120,
         });
         
-        const generated = (response.choices?.[0]?.message?.content || '').trim();
+        const rawGenerated = (response.choices?.[0]?.message?.content || '').trim();
+        // 清除 thinking 標籤（Qwen3 等推理模型）
+        const generated = stripThinkingTags(rawGenerated);
+        
+        const sentenceTime = ((performance.now() - sentenceStartTime) / 1000).toFixed(1);
+        console.log(`[WebLLM]   📝 [${name}] ${sentenceTime}s - 原始: "${rawGenerated.substring(0, 80)}..."`);
+        if (rawGenerated !== generated) {
+          console.log(`[WebLLM]   🧹 已清除 thinking 標籤, 清理後: "${generated.substring(0, 80)}..."`);
+        }
         
         // 解析 "原文|翻譯" 格式
         if (generated && generated.includes('|')) {
@@ -261,6 +296,7 @@ export function useWebLLM() {
           }
         } else if (generated && generated.length > 5 && generated.length < 200) {
           // 備用方案：如果 LLM 沒有按格式輸出，仍使用翻譯 API
+          console.log(`[WebLLM]   ⚠️ 未按格式輸出，使用翻譯 API`);
           const translation = await translate(generated, lang);
           sentences.push({
             original: generated,
@@ -269,19 +305,24 @@ export function useWebLLM() {
           });
         }
       } catch (e) {
-        console.error('Generation failed:', e);
+        console.error('[WebLLM]   ❌ Generation failed:', e);
       }
     }
 
+    const totalTime = ((performance.now() - totalStartTime) / 1000).toFixed(1);
+    console.log(`[WebLLM] ✅ 生成完成: ${sentences.length} 個例句，總耗時 ${totalTime}s`);
+    setIsGenerating(false);
     return sentences.slice(0, 5);
   }, [isReady]);
 
   return { 
     isReady, 
     isLoading, 
+    isGenerating,
     progress, 
     error, 
     currentModel,
+    loadingModelName,
     availableModels,
     loadModel,
     generateSentences 
