@@ -67,6 +67,56 @@ export const availableModels: ModelConfig[] = [
     size: '~900MB',
     modelId: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
   },
+  // 2025-2026 最新模型
+  {
+    id: 'qwen3-0.6b',
+    name: 'Qwen3 0.6B',
+    description: '阿里最新超輕量，中文極強',
+    size: '~900MB',
+    modelId: 'Qwen3-0.6B-q4f16_1-MLC',
+  },
+  {
+    id: 'qwen3-1.7b',
+    name: 'Qwen3 1.7B',
+    description: 'Qwen3 系列，性能更強',
+    size: '~1.3GB',
+    modelId: 'Qwen3-1.7B-q4f16_1-MLC',
+  },
+  {
+    id: 'qwen3-4b',
+    name: 'Qwen3 4B',
+    description: 'Qwen3 中型版本，平衡之選',
+    size: '~2.2GB',
+    modelId: 'Qwen3-4B-q4f16_1-MLC',
+  },
+  {
+    id: 'ministral-3-3b-instruct',
+    name: 'Ministral-3 3B Instruct',
+    description: 'Mistral 2026 最新 3B 系列',
+    size: '~2.0GB',
+    modelId: 'Ministral-3-3B-Instruct-2512-BF16-q4f16_1-MLC',
+  },
+  {
+    id: 'ministral-3-3b-reasoning',
+    name: 'Ministral-3 3B Reasoning',
+    description: 'Mistral 推理專用版本（2026新）',
+    size: '~2.0GB',
+    modelId: 'Ministral-3-3B-Reasoning-2512-q4f16_1-MLC',
+  },
+  {
+    id: 'gemma-2-2b',
+    name: 'Gemma-2 2B',
+    description: 'Google 最新 Gemma 2 系列',
+    size: '~1.3GB',
+    modelId: 'gemma-2-2b-it-q4f16_1-MLC',
+  },
+  {
+    id: 'qwen2.5-coder-1.5b',
+    name: 'Qwen2.5-Coder 1.5B',
+    description: '專業程式碼生成模型',
+    size: '~1.0GB',
+    modelId: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC',
+  },
 ];
 
 // 語言配置
@@ -76,21 +126,21 @@ export const langConfigs: Record<string, { placeholder: string; icon: string; vo
     icon: '🇯🇵', 
     voice: 'ja-JP', 
     name: '日本語',
-    systemPrompt: '你是日語教學助手。請用用戶提供的單字生成自然的日文例句。只輸出例句本身，不需要解釋。'
+    systemPrompt: '你是日語教學助手。請用用戶提供的單字生成自然的日文例句，並提供中文翻譯。格式：日文例句|中文翻譯。只輸出這個格式，不需要其他解釋。'
   },
   en: { 
     placeholder: 'Type English...', 
     icon: '🇬🇧', 
     voice: 'en-US', 
     name: 'English',
-    systemPrompt: 'You are an English teaching assistant. Generate natural English sentences using the provided word. Output only the sentence, no explanation.'
+    systemPrompt: 'You are an English teaching assistant. Generate a natural English sentence using the provided word, and provide Chinese translation. Format: English sentence|中文翻譯. Output only this format, no other explanation.'
   },
   zh: { 
     placeholder: '輸入中文...', 
     icon: '🇹🇼', 
     voice: 'zh-TW', 
     name: '中文',
-    systemPrompt: '你是中文教學助手。請用用戶提供的單字生成自然的中文例句。只輸出例句本身，不需要解釋。'
+    systemPrompt: '你是中文教學助手。請用用戶提供的單字生成自然的中文例句，並提供英文翻譯。格式：中文例句|English translation。只輸出這個格式，不需要其他解釋。'
   },
 };
 
@@ -194,12 +244,23 @@ export function useWebLLM() {
             { role: 'user', content: `單字："${word}"\n語境：${prompt}\n\n請生成一個自然的例句：` }
           ],
           temperature: 0.7,
-          max_tokens: 100,
+          max_tokens: 120,
         });
         
         const generated = (response.choices?.[0]?.message?.content || '').trim();
         
-        if (generated && generated.length > 5 && generated.length < 200) {
+        // 解析 "原文|翻譯" 格式
+        if (generated && generated.includes('|')) {
+          const [original, translation] = generated.split('|').map(s => s.trim());
+          if (original && translation && original.length > 3 && original.length < 200) {
+            sentences.push({
+              original,
+              translation,
+              context: name,
+            });
+          }
+        } else if (generated && generated.length > 5 && generated.length < 200) {
+          // 備用方案：如果 LLM 沒有按格式輸出，仍使用翻譯 API
           const translation = await translate(generated, lang);
           sentences.push({
             original: generated,
