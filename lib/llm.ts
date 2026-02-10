@@ -251,7 +251,7 @@ export function useWebLLM() {
         
         // 解析 "原文|翻譯" 格式
         if (generated && generated.includes('|')) {
-          const [original, translation] = generated.split('|').map(s => s.trim());
+          const [original, translation] = generated.split('|').map((s: string) => s.trim());
           if (original && translation && original.length > 3 && original.length < 200) {
             sentences.push({
               original,
