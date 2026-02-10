@@ -21,6 +21,60 @@ export interface LoadingProgress {
   progress: number;
 }
 
+export interface ModelConfig {
+  id: string;
+  name: string;
+  description: string;
+  size: string;
+  modelId: string;
+}
+
+// 支援的模型列表
+export const availableModels: ModelConfig[] = [
+  {
+    id: 'gemma-2b',
+    name: 'Gemma 2B',
+    description: 'Google 官方，平衡速度與質量',
+    size: '~600MB',
+    modelId: 'gemma-2b-it-q4f16_1',
+  },
+  {
+    id: 'llama-3.2-1b',
+    name: 'Llama 3.2 1B',
+    description: 'Meta 最新，速度最快',
+    size: '~400MB',
+    modelId: 'Llama-3.2-1B-Instruct-q4f16_1',
+  },
+  {
+    id: 'llama-3.2-3b',
+    name: 'Llama 3.2 3B',
+    description: 'Meta 最新，質量更好',
+    size: '~1.2GB',
+    modelId: 'Llama-3.2-3B-Instruct-q4f16_1',
+  },
+  {
+    id: 'qwen-2.5-1.5b',
+    name: 'Qwen 2.5 1.5B',
+    description: '阿里巴巴，中文極強',
+    size: '~800MB',
+    modelId: 'Qwen2.5-1.5B-Instruct-q4f16_1',
+  },
+  {
+    id: 'smollm-1.7b',
+    name: 'SmolLM 1.7B',
+    description: 'Hugging Face，最新小模型',
+    size: '~750MB',
+    modelId: 'SmolLM-1.7B-Instruct-q4f16_1',
+  },
+  {
+    id: 'phi-3.5',
+    name: 'Phi 3.5 Mini',
+    description: 'Microsoft，推理能力強',
+    size: '~900MB',
+    modelId: 'Phi-3.5-mini-instruct-q4f16_1',
+  },
+];
+
 // 語言配置
 export const langConfigs: Record<string, { placeholder: string; icon: string; voice: string; name: string; systemPrompt: string }> = {
   ja: { 
@@ -61,57 +115,63 @@ export function useWebLLM() {
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState<LoadingProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentModel, setCurrentModel] = useState<string>('gemma-2b');
   const chatRef = useRef<webllm.ChatModule | null>(null);
   const isClient = typeof window !== 'undefined';
 
-  // 初始化 WebLLM
-  useEffect(() => {
+  // 初始化或切換模型
+  const loadModel = useCallback(async (modelId: string) => {
     if (!isClient) return;
     
-    const initChat = async () => {
-      try {
-        setIsLoading(true);
-        
-        const chat = new webllm.ChatModule();
-        
-        // 設置進度回調
-        chat.setInitProgressCallback((report: webllm.InitProgressReport) => {
-          setProgress({
-            text: report.text,
-            progress: report.progress,
-          });
-        });
-        
-        // 載入 Gemma 3 1B 模型
-        // 注意：WebLLM 可能還沒有官方 Gemma 3 支援，先用 Gemma 2 或等待更新
-        await chat.reload('gemma-2b-it-q4f16_1', {
-          chat_opts: {
-            temperature: 0.7,
-            max_gen_len: 100,
-          }
-        });
-        
-        chatRef.current = chat;
-        setIsReady(true);
-        setError(null);
-      } catch (err: any) {
-        console.error('WebLLM init failed:', err);
-        setError(err.message || '模型載入失敗');
-      } finally {
-        setIsLoading(false);
-        setProgress(null);
-      }
-    };
-    
-    initChat();
-    
-    // 清理
-    return () => {
+    const modelConfig = availableModels.find(m => m.id === modelId);
+    if (!modelConfig) return;
+
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      // 如果已有模型，先卸載
       if (chatRef.current) {
-        chatRef.current.unload();
+        await chatRef.current.unload();
+        chatRef.current = null;
       }
-    };
+      
+      const chat = new webllm.ChatModule();
+      
+      // 設置進度回調
+      chat.setInitProgressCallback((report: webllm.InitProgressReport) => {
+        setProgress({
+          text: report.text,
+          progress: report.progress,
+        });
+      });
+      
+      // 載入選擇的模型
+      await chat.reload(modelConfig.modelId, {
+        chat_opts: {
+          temperature: 0.7,
+          max_gen_len: 100,
+        }
+      });
+      
+      chatRef.current = chat;
+      setCurrentModel(modelId);
+      setIsReady(true);
+      setError(null);
+    } catch (err: any) {
+      console.error('WebLLM init failed:', err);
+      setError(err.message || '模型載入失敗');
+      setIsReady(false);
+    } finally {
+      setIsLoading(false);
+      setProgress(null);
+    }
   }, [isClient]);
+
+  // 初始載入默認模型
+  useEffect(() => {
+    loadModel('gemma-2b');
+  }, [loadModel]);
 
   const generateSentences = useCallback(async (
     word: string,
@@ -148,7 +208,16 @@ export function useWebLLM() {
     return sentences.slice(0, 5);
   }, [isReady]);
 
-  return { isReady, isLoading, progress, error, generateSentences };
+  return { 
+    isReady, 
+    isLoading, 
+    progress, 
+    error, 
+    currentModel,
+    availableModels,
+    loadModel,
+    generateSentences 
+  };
 }
 
 // 翻譯

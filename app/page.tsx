@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download } from 'lucide-react';
-import { useWebLLM, playAudio, useHistory, useTheme, langConfigs } from '@/lib/llm';
+import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown } from 'lucide-react';
+import { useWebLLM, playAudio, useHistory, useTheme, langConfigs, availableModels } from '@/lib/llm';
 
 export default function Home() {
   const [input, setInput] = useState('');
@@ -12,10 +12,21 @@ export default function Home() {
     meaning: string;
     sentences: Array<{ original: string; translation: string; context: string }>;
   } | null>(null);
+  const [showModelSelector, setShowModelSelector] = useState(false);
   
-  const { isReady, isLoading, progress, error, generateSentences } = useWebLLM();
+  const { 
+    isReady, 
+    isLoading, 
+    progress, 
+    error, 
+    currentModel,
+    loadModel,
+    generateSentences 
+  } = useWebLLM();
   const { history, addToHistory, clearHistory, isClient } = useHistory();
   const { theme, toggleTheme, mounted } = useTheme();
+
+  const currentModelConfig = availableModels.find(m => m.id === currentModel);
 
   const handleSearch = useCallback(async () => {
     if (!input.trim() || !isReady) return;
@@ -27,12 +38,12 @@ export default function Home() {
 
     setResult({
       word,
-      meaning: 'Gemma 2B WebLLM 生成',
+      meaning: `${currentModelConfig?.name || 'AI'} 生成`,
       sentences,
     });
 
     addToHistory(word, selectedLang);
-  }, [input, selectedLang, isReady, generateSentences, addToHistory]);
+  }, [input, selectedLang, isReady, generateSentences, addToHistory, currentModelConfig]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSearch();
@@ -42,6 +53,12 @@ export default function Home() {
     setInput(word);
     setSelectedLang(lang as 'ja' | 'en' | 'zh');
     setTimeout(() => handleSearch(), 100);
+  };
+
+  const handleModelChange = async (modelId: string) => {
+    setShowModelSelector(false);
+    setResult(null);
+    await loadModel(modelId);
   };
 
   // 防止 hydration 錯誤
@@ -84,44 +101,105 @@ export default function Home() {
           <p className="text-[var(--text-secondary)] text-lg">
             打一個字，學一句話
           </p>
-          
-          {/* Model Status */}
-          <div className={`mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm ${
-            isLoading ? 'bg-yellow-500/10 text-yellow-600' :
-            error ? 'bg-red-500/10 text-red-600' :
-            isReady ? 'bg-green-500/10 text-green-600' :
-            'bg-[var(--bg-secondary)] text-[var(--text-secondary)]'
-          }`}>
-            {isLoading ? (
-              <>
-                <Download className="w-4 h-4 animate-bounce" />
-                正在下載 WebLLM 模型...
-              </>
-            ) : error ? (
-              <>
-                <span className="w-2 h-2 rounded-full bg-red-500" />
-                {error}
-              </>
-            ) : isReady ? (
-              <>
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                Gemma 2B WebLLM 已就緒
-              </>
-            ) : (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                初始化中...
-              </>
-            )}
-          </div>
         </header>
+
+        {/* Model Selector */}
+        <div className="mb-6 relative">
+          <button
+            onClick={() => setShowModelSelector(!showModelSelector)}
+            disabled={isLoading}
+            className="w-full p-4 bg-[var(--card)] border border-[var(--border)] rounded-xl
+                       flex items-center justify-between
+                       hover:border-[var(--accent)] transition-colors
+                       disabled:opacity-50"
+          >
+            <div className="flex items-center gap-3">
+              <Cpu className="w-5 h-5 text-[var(--accent)]" />
+              <div className="text-left">
+                <p className="font-medium">{currentModelConfig?.name || '選擇模型'}</p>
+                <p className="text-sm text-[var(--text-secondary)]">
+                  {currentModelConfig?.description || '點擊選擇 AI 模型'}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[var(--text-tertiary)]">
+                {currentModelConfig?.size || ''}
+              </span>
+              <ChevronDown className={`w-5 h-5 transition-transform ${showModelSelector ? 'rotate-180' : ''}`} />
+            </div>
+          </button>
+          
+          {/* Model Dropdown */}
+          {showModelSelector && (
+            <div className="absolute top-full left-0 right-0 mt-2 
+                           bg-[var(--card)] border border-[var(--border)] rounded-xl
+                           shadow-xl z-50 animate-fade-in">
+              <div className="p-2">
+                <p className="px-3 py-2 text-xs font-medium text-[var(--text-tertiary)] uppercase">
+                  選擇 AI 模型
+                </p>
+                
+                {availableModels.map((model) => (
+                  <button
+                    key={model.id}
+                    onClick={() => handleModelChange(model.id)}
+                    className={`w-full p-3 rounded-lg text-left transition-colors
+                               ${currentModel === model.id 
+                                 ? 'bg-[var(--accent)]/10 border border-[var(--accent)]' 
+                                 : 'hover:bg-[var(--bg-secondary)]'}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{model.name}</p>
+                        <p className="text-sm text-[var(--text-secondary)]">{model.description}</p>
+                      </div>
+                      <span className="text-xs text-[var(--text-tertiary)]">{model.size}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Model Status */}
+        <div className={`mb-6 inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm w-full justify-center ${
+          isLoading ? 'bg-yellow-500/10 text-yellow-600' :
+          error ? 'bg-red-500/10 text-red-600' :
+          isReady ? 'bg-green-500/10 text-green-600' :
+          'bg-[var(--bg-secondary)] text-[var(--text-secondary)]'
+        }`}>
+          {isLoading ? (
+            <>
+              <Download className="w-4 h-4 animate-bounce" />
+              正在下載 {currentModelConfig?.name}...
+            </>
+          ) : error ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-red-500" />
+              {error}
+            </>
+          ) : isReady ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              {currentModelConfig?.name} 已就緒
+            </>
+          ) : (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              初始化中...
+            </>
+          )}
+        </div>
 
         {/* Loading Progress */}
         {isLoading && progress && (
           <div className="mb-8 p-6 bg-[var(--card)] border border-[var(--border)] rounded-2xl animate-fade-in">
             <div className="flex items-center gap-3 mb-4">
               <Download className="w-6 h-6 animate-bounce text-[var(--accent)]" />
-              <span className="font-medium">正在載入 AI 模型...</span>
+              <span className="font-medium">正在載入 {currentModelConfig?.name}...</span>
             </div>
             
             <div className="w-full h-3 bg-[var(--bg-secondary)] rounded-full overflow-hidden">
@@ -136,7 +214,7 @@ export default function Home() {
             </p>
             
             <p className="mt-2 text-xs text-[var(--text-tertiary)]">
-              首次載入約需 1-3 分鐘，之後即可離線使用
+              首次載入約需 1-5 分鐘，之後即可離線使用
             </p>
           </div>
         )}
@@ -310,7 +388,7 @@ export default function Home() {
         <footer className="mt-12 text-center text-[var(--text-tertiary)] text-sm">
           <p className="flex items-center justify-center gap-2">
             <Sparkles className="w-4 h-4" />
-            Powered by WebLLM + Gemma 2B
+            Powered by WebLLM
           </p>
           <p className="mt-2">支援：日文 🇯🇵 | 英文 🇬🇧 | 中文 🇹🇼</p>
         </footer>
