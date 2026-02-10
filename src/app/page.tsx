@@ -1,58 +1,198 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Search, Volume2, BookOpen, Sparkles, History, X, Globe } from "lucide-react";
-import { getWordDetails, getTranslation } from "@/lib/api";
+import { Search, Volume2, BookOpen, Sparkles, History, X, Globe, Brain } from "lucide-react";
+import { pipeline, TextGenerationPipeline } from "@huggingface/transformers";
 
-// 本地數據庫 (常用詞彙)
-const localDatabase: Record<string, Record<string, { meaning: string; reading?: string }>> = {
+// Web LLM 例句生成器
+class WebLLMGenerator {
+  private generator: TextGenerationPipeline | null = null;
+  private isLoading = false;
+  private loadPromise: Promise<void> | null = null;
+
+  async load() {
+    if (this.generator) return;
+    if (this.loadPromise) return this.loadPromise;
+    
+    this.loadPromise = this.doLoad();
+    return this.loadPromise;
+  }
+
+  private async doLoad() {
+    this.isLoading = true;
+    try {
+      // 使用 TinyLlama 1.1B - 適合瀏覽器的小模型
+      this.generator = await pipeline(
+        "text-generation",
+        "onnx-community/TinyLlama-1.1B-Chat-v1.0",
+        {
+          dtype: "q4f16", // 4-bit 量化，減少內存使用
+          device: "webgpu", // 使用 WebGPU 加速 (如果可用)
+        }
+      );
+    } catch (e) {
+      // 如果 WebGPU 失敗，回退到 CPU
+      this.generator = await pipeline(
+        "text-generation",
+        "onnx-community/TinyLlama-1.1B-Chat-v1.0",
+        {
+          dtype: "q4f16",
+          device: "cpu",
+        }
+      );
+    }
+    this.isLoading = false;
+  }
+
+  async generateSentences(word: string, lang: string, meaning: string): Promise<Array<{
+    original: string;
+    translation: string;
+    context: string;
+  }>> {
+    await this.load();
+    if (!this.generator) throw new Error("Model not loaded");
+
+    const prompts = this.createPrompts(word, lang, meaning);
+    const sentences: Array<{ original: string; translation: string; context: string }> = [];
+
+    for (const { prompt, context } of prompts) {
+      try {
+        const output = await this.generator(prompt, {
+          max_new_tokens: 100,
+          temperature: 0.7,
+          do_sample: true,
+          return_full_text: false,
+        });
+
+        const generated = output[0]?.generated_text?.trim() || "";
+        const cleanSentence = this.cleanOutput(generated, word);
+        
+        if (cleanSentence && cleanSentence.length > 5) {
+          const translation = await this.translate(cleanSentence, lang);
+          sentences.push({
+            original: cleanSentence,
+            translation,
+            context,
+          });
+        }
+      } catch (e) {
+        console.error("Generation failed:", e);
+      }
+    }
+
+    return sentences.slice(0, 5); // 返回最多 5 句
+  }
+
+  private createPrompts(word: string, lang: string, meaning: string): Array<{ prompt: string; context: string }> {
+    const contexts = [
+      { name: "日常對話", desc: "daily conversation" },
+      { name: "工作場景", desc: "work situation" },
+      { name: "情感表達", desc: "emotional expression" },
+      { name: "描述事物", desc: "describing something" },
+      { name: "請求幫助", desc: "asking for help" },
+    ];
+
+    return contexts.map(({ name, desc }) => {
+      let prompt = "";
+      
+      if (lang === "ja") {
+        prompt = `<|system|>
+你是一個日語教學助手。請用「${word}」(${meaning}) 生成一個自然的日文例句，語境是${desc}。只輸出例句本身，不要解釋。
+<|user|>
+請給我一個${desc}的例句。
+<|assistant|>`;
+      } else if (lang === "zh") {
+        prompt = `<|system|>
+你是一個中文教學助手。請用「${word}」(${meaning}) 生成一個自然的中文例句，語境是${desc}。只輸出例句本身，不要解釋。
+<|user|>
+請給我一個${desc}的例句。
+<|assistant|>`;
+      } else {
+        prompt = `<|system|>
+You are an English teaching assistant. Please generate a natural English sentence using "${word}" (${meaning}) in the context of ${desc}. Output only the sentence, no explanation.
+<|user|>
+Give me a sentence about ${desc}.
+<|assistant|>`;
+      }
+
+      return { prompt, context: name };
+    });
+  }
+
+  private cleanOutput(text: string, word: string): string {
+    // 清理模型輸出
+    let cleaned = text
+      .replace(/<\|.*\|>/g, "") // 移除特殊標記
+      .replace(/^(例句：|Sentence:|Example:)/i, "")
+      .replace(/[\n\r]/g, " ")
+      .trim();
+
+    // 確保包含目標單字
+    if (!cleaned.includes(word)) {
+      return "";
+    }
+
+    // 限制長度
+    if (cleaned.length > 100) {
+      cleaned = cleaned.substring(0, 100) + "...";
+    }
+
+    return cleaned;
+  }
+
+  private async translate(text: string, fromLang: string): Promise<string> {
+    // 使用 MyMemory API 進行翻譯
+    try {
+      const from = fromLang === "ja" ? "ja" : fromLang === "zh" ? "zh" : "en";
+      const to = fromLang === "en" ? "zh" : "en";
+      
+      const response = await fetch(
+        `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`
+      );
+      const data = await response.json();
+      return data.responseData?.translatedText || "";
+    } catch {
+      return "(翻譯失敗)";
+    }
+  }
+
+  isReady() {
+    return !!this.generator;
+  }
+}
+
+// 單例模式
+const llmGenerator = new WebLLMGenerator();
+
+// 本地數據庫 (常用詞彙的基礎信息)
+const localDatabase: Record<string, Record<string, { meaning: string; reading?: string; pos?: string }>> = {
   ja: {
-    "愛": { meaning: "愛、愛情", reading: "あい (ai)" },
-    "夢": { meaning: "夢想、夢境", reading: "ゆめ (yume)" },
-    "時間": { meaning: "時間", reading: "じかん (jikan)" },
-    "猫": { meaning: "貓", reading: "ねこ (neko)" },
-    "本": { meaning: "書", reading: "ほん (hon)" },
-    "友達": { meaning: "朋友", reading: "ともだち (tomodachi)" },
-    "家族": { meaning: "家人", reading: "かぞく (kazoku)" },
-    "仕事": { meaning: "工作", reading: "しごと (shigoto)" },
-    "学校": { meaning: "學校", reading: "がっこう (gakkou)" },
-    "食べ物": { meaning: "食物", reading: "たべもの (tabemono)" },
+    "愛": { meaning: "愛、愛情", reading: "あい (ai)", pos: "noun" },
+    "夢": { meaning: "夢想、夢境", reading: "ゆめ (yume)", pos: "noun" },
+    "時間": { meaning: "時間", reading: "じかん (jikan)", pos: "noun" },
+    "猫": { meaning: "貓", reading: "ねこ (neko)", pos: "noun" },
+    "本": { meaning: "書", reading: "ほん (hon)", pos: "noun" },
+    "食べる": { meaning: "吃", reading: "たべる (taberu)", pos: "verb" },
+    "行く": { meaning: "去", reading: "いく (iku)", pos: "verb" },
+    "良い": { meaning: "好的", reading: "よい (yoi)", pos: "adjective" },
   },
   en: {
-    "serendipity": { meaning: "意外發現珍貴事物的能力" },
-    "ephemeral": { meaning: "短暫的、轉瞬即逝的" },
-    "love": { meaning: "愛、愛情" },
-    "time": { meaning: "時間" },
-    "dream": { meaning: "夢想、夢境" },
-    "friend": { meaning: "朋友" },
-    "family": { meaning: "家人" },
-    "work": { meaning: "工作" },
-    "school": { meaning: "學校" },
-    "food": { meaning: "食物" },
+    "love": { meaning: "愛、愛情", pos: "noun" },
+    "time": { meaning: "時間", pos: "noun" },
+    "dream": { meaning: "夢想、夢境", pos: "noun" },
+    "eat": { meaning: "吃", pos: "verb" },
+    "go": { meaning: "去", pos: "verb" },
+    "beautiful": { meaning: "美麗的", pos: "adjective" },
   },
   zh: {
-    "夢": { meaning: "夢想、夢境", reading: "mèng" },
-    "愛": { meaning: "愛、愛情", reading: "ài" },
-    "時間": { meaning: "時間", reading: "shí jiān" },
-    "朋友": { meaning: "朋友", reading: "péng yǒu" },
-    "家人": { meaning: "家人", reading: "jiā rén" },
-    "工作": { meaning: "工作", reading: "gōng zuò" },
-    "學校": { meaning: "學校", reading: "xué xiào" },
-    "食物": { meaning: "食物", reading: "shí wù" },
+    "愛": { meaning: "love, affection", reading: "ài", pos: "noun" },
+    "夢": { meaning: "dream", reading: "mèng", pos: "noun" },
+    "時間": { meaning: "time", reading: "shí jiān", pos: "noun" },
+    "吃": { meaning: "eat", reading: "chī", pos: "verb" },
+    "去": { meaning: "go", reading: "qù", pos: "verb" },
+    "漂亮": { meaning: "beautiful", reading: "piào liang", pos: "adjective" },
   },
 };
-
-// 獲取讀音
-function getReading(word: string, lang: string): string {
-  const db = localDatabase[lang]?.[word];
-  return db?.reading || "";
-}
-
-// 獲取意思
-function getMeaning(word: string, lang: string): string {
-  const db = localDatabase[lang]?.[word];
-  return db?.meaning || "";
-}
 
 export default function LangLearn() {
   const [input, setInput] = useState("");
@@ -60,6 +200,8 @@ export default function LangLearn() {
   const [result, setResult] = useState<any>(null);
   const [history, setHistory] = useState<Array<{ word: string; lang: string }>>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isLoadingModel, setIsLoadingModel] = useState(false);
+  const [modelReady, setModelReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // 載入歷史記錄
@@ -75,8 +217,25 @@ export default function LangLearn() {
     localStorage.setItem("lang-learn-history", JSON.stringify(history));
   }, [history]);
 
+  // 預載入模型
+  useEffect(() => {
+    const preload = async () => {
+      setIsLoadingModel(true);
+      try {
+        await llmGenerator.load();
+        setModelReady(true);
+      } catch (e) {
+        console.error("Model load failed:", e);
+        setError("模型載入失敗，請刷新頁面重試");
+      } finally {
+        setIsLoadingModel(false);
+      }
+    };
+    preload();
+  }, []);
+
   const handleSearch = useCallback(async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || !modelReady) return;
     
     setIsSearching(true);
     setError(null);
@@ -84,19 +243,25 @@ export default function LangLearn() {
     try {
       const word = input.trim();
       
-      // 獲取單字詳情
-      const details = await getWordDetails(word, selectedLang);
+      // 獲取本地數據庫信息
+      const localData = localDatabase[selectedLang]?.[word];
+      const meaning = localData?.meaning || "";
+      const reading = localData?.reading || "";
       
-      // 合併本地數據庫信息
-      const localMeaning = getMeaning(word, selectedLang);
-      const localReading = getReading(word, selectedLang);
+      // 使用 Web LLM 生成例句
+      const sentences = await llmGenerator.generateSentences(word, selectedLang, meaning || word);
+      
+      if (sentences.length === 0) {
+        setError("無法生成例句，請嘗試其他單字");
+        setIsSearching(false);
+        return;
+      }
       
       setResult({
         word,
-        meaning: localMeaning || details.meaning,
-        reading: localReading,
-        sentences: details.sentences,
-        isGenerated: details.meaning.includes("自動生成"),
+        meaning: meaning || "(Web LLM 生成)",
+        reading,
+        sentences,
       });
       
       // 添加到歷史
@@ -105,11 +270,11 @@ export default function LangLearn() {
         return [{ word, lang: selectedLang }, ...filtered].slice(0, 20);
       });
     } catch (err) {
-      setError("搜尋時發生錯誤，請重試");
+      setError("生成時發生錯誤，請重試");
     } finally {
       setIsSearching(false);
     }
-  }, [input, selectedLang]);
+  }, [input, selectedLang, modelReady]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -119,9 +284,7 @@ export default function LangLearn() {
 
   const playAudio = (text: string) => {
     if ("speechSynthesis" in window) {
-      // 停止之前的播放
       window.speechSynthesis.cancel();
-      
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = selectedLang === "ja" ? "ja-JP" : selectedLang === "zh" ? "zh-TW" : "en-US";
       utterance.rate = 0.9;
@@ -134,14 +297,6 @@ export default function LangLearn() {
     localStorage.removeItem("lang-learn-history");
   };
 
-  const loadFromHistory = (word: string, lang: string) => {
-    setInput(word);
-    setSelectedLang(lang as any);
-    setTimeout(() => {
-      handleSearch();
-    }, 100);
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-4">
       <div className="mx-auto max-w-2xl">
@@ -152,6 +307,15 @@ export default function LangLearn() {
             一字學習
           </h1>
           <p className="text-purple-200">打一個字，學一句話</p>
+          
+          {/* Model Status */}
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <Brain className={`w-4 h-4 ${isLoadingModel ? "animate-pulse text-yellow-400" : modelReady ? "text-green-400" : "text-red-400"}`} />
+            <span className={`text-xs ${isLoadingModel ? "text-yellow-400" : modelReady ? "text-green-400" : "text-red-400"}`}>
+              {isLoadingModel ? "載入 TinyLlama 1.1B 模型中... (首次載入約 30-60 秒)" : 
+               modelReady ? "Web LLM 已就緒" : "模型載入失敗"}
+            </span>
+          </div>
         </div>
 
         {/* Language Selector */}
@@ -167,7 +331,8 @@ export default function LangLearn() {
                 setSelectedLang(lang.code);
                 setResult(null);
               }}
-              className={`px-4 py-2 rounded-full transition-all ${
+              disabled={isLoadingModel}
+              className={`px-4 py-2 rounded-full transition-all disabled:opacity-50 ${
                 selectedLang === lang.code
                   ? "bg-white text-purple-900 font-semibold shadow-lg"
                   : "bg-white/10 text-white hover:bg-white/20"
@@ -185,12 +350,13 @@ export default function LangLearn() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={selectedLang === "ja" ? "輸入日文... (例: 夢、愛、時間)" : selectedLang === "zh" ? "輸入中文... (例: 夢想、愛情)" : "Type English... (e.g., love, dream)"}
-            className="w-full px-6 py-4 pr-14 text-lg bg-white/10 backdrop-blur border border-white/20 rounded-2xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all"
+            disabled={!modelReady || isLoadingModel}
+            placeholder={selectedLang === "ja" ? "輸入日文..." : selectedLang === "zh" ? "輸入中文..." : "Type English..."}
+            className="w-full px-6 py-4 pr-14 text-lg bg-white/10 backdrop-blur border border-white/20 rounded-2xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all disabled:opacity-50"
           />
           <button
             onClick={handleSearch}
-            disabled={isSearching || !input.trim()}
+            disabled={isSearching || !input.trim() || !modelReady}
             className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-purple-500 hover:bg-purple-400 disabled:bg-white/10 rounded-xl transition-colors"
           >
             {isSearching ? (
@@ -219,9 +385,7 @@ export default function LangLearn() {
                   {result.reading && (
                     <p className="text-purple-300 text-lg">{result.reading}</p>
                   )}
-                  {result.meaning && (
-                    <p className="text-white/70 mt-2">{result.meaning}</p>
-                  )}
+                  <p className="text-white/70 mt-2">{result.meaning}</p>
                 </div>
                 <button
                   onClick={() => playAudio(result.word)}
@@ -231,21 +395,16 @@ export default function LangLearn() {
                   <Volume2 className="w-6 h-6 text-white" />
                 </button>
               </div>
-              {result.isGenerated && (
-                <div className="flex items-center gap-2 mt-3">
-                  <span className="px-2 py-1 bg-yellow-500/20 text-yellow-300 text-xs rounded-full">
-                    智能生成例句
-                  </span>
-                  <span className="text-white/40 text-xs">已提供 8 種不同語境的例句</span>
-                </div>
-              )}
+              <span className="inline-block mt-3 px-2 py-1 bg-green-500/20 text-green-300 text-xs rounded-full">
+                🧠 TinyLlama 1.1B 生成
+              </span>
             </div>
 
             {/* Sentences */}
             <div className="p-6">
               <h3 className="flex items-center gap-2 text-white/80 font-semibold mb-4">
                 <BookOpen className="w-5 h-5" />
-                例句 ({result.sentences.length} 句)
+                AI 生成例句 ({result.sentences.length} 句)
               </h3>
               <div className="space-y-3">
                 {result.sentences.map((sentence: any, idx: number) => (
@@ -255,14 +414,13 @@ export default function LangLearn() {
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs text-purple-400 font-mono">#{idx + 1}</span>
-                          <p className="text-white text-lg">{sentence.original}</p>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded-full">
+                            {sentence.context}
+                          </span>
                         </div>
-                        {sentence.pronunciation && (
-                          <p className="text-purple-300 text-sm mb-2 font-mono">{sentence.pronunciation}</p>
-                        )}
-                        <p className="text-white/60">{sentence.translation}</p>
+                        <p className="text-white text-lg mb-1">{sentence.original}</p>
+                        <p className="text-white/60 text-sm">{sentence.translation}</p>
                       </div>
                       <button
                         onClick={() => playAudio(sentence.original)}
@@ -299,7 +457,11 @@ export default function LangLearn() {
               {history.map((item) => (
                 <button
                   key={`${item.word}-${item.lang}`}
-                  onClick={() => loadFromHistory(item.word, item.lang)}
+                  onClick={() => {
+                    setInput(item.word);
+                    setSelectedLang(item.lang as any);
+                    setTimeout(() => handleSearch(), 100);
+                  }}
                   className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white/80 rounded-lg text-sm transition-colors flex items-center gap-1"
                 >
                   <Globe className="w-3 h-3 opacity-50" />
@@ -310,13 +472,13 @@ export default function LangLearn() {
           </div>
         )}
 
-        {/* Tips */}
+        {/* Footer */}
         <div className="mt-8 text-center">
           <p className="text-white/30 text-sm">
-            💡 輸入任意單字，獲取 8 種不同語境的例句
+            💡 使用 TinyLlama 1.1B 模型在瀏覽器本地生成例句
           </p>
           <p className="text-white/20 text-xs mt-2">
-            支援：日文 🇯🇵 | 英文 🇬🇧 | 中文 🇹🇼
+            模型首次載入約需 30-60 秒，之後即可離線使用
           </p>
         </div>
       </div>
