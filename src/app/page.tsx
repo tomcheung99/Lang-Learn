@@ -1,174 +1,66 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Search, Volume2, BookOpen, Sparkles, History, X } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Search, Volume2, BookOpen, Sparkles, History, X, Globe } from "lucide-react";
+import { getWordDetails, getTranslation } from "@/lib/api";
 
-// 模擬例句數據庫
-const sentenceDatabase: Record<string, Record<string, { sentences: Array<{ original: string; translation: string; pronunciation?: string }>; meaning: string; reading?: string }>> = {
-  // 日語
+// 本地數據庫 (常用詞彙)
+const localDatabase: Record<string, Record<string, { meaning: string; reading?: string }>> = {
   ja: {
-    "愛": {
-      meaning: "愛、愛情",
-      reading: "あい (ai)",
-      sentences: [
-        { original: "愛は世界を救う。", translation: "愛能拯救世界。", pronunciation: "Ai wa sekai wo sukuu." },
-        { original: "彼女は家族を深く愛している。", translation: "她深愛著家人。", pronunciation: "Kanojo wa kazoku wo fukaku aishite iru." },
-        { original: "愛することは恐れることではない。", translation: "去愛並不可怕。", pronunciation: "Ai suru koto wa osoreru koto de wa nai." },
-      ],
-    },
-    "夢": {
-      meaning: "夢想、夢境",
-      reading: "ゆめ (yume)",
-      sentences: [
-        { original: "夢を追いかけ続けなさい。", translation: "繼續追逐你的夢想。", pronunciation: "Yume wo oikake tsudzukenasai." },
-        { original: "昨夜、不思議な夢を見た。", translation: "昨晚做了個奇怪的夢。", pronunciation: "Sakuya, fushigi na yume wo mita." },
-        { original: "夢が現実になった。", translation: "夢想成真了。", pronunciation: "Yume ga genjitsu ni natta." },
-      ],
-    },
-    "時間": {
-      meaning: "時間",
-      reading: "じかん (jikan)",
-      sentences: [
-        { original: "時間は金なり。", translation: "時間就是金錢。", pronunciation: "Jikan wa kane nari." },
-        { original: "もう少し時間が欲しい。", translation: "想要多一點時間。", pronunciation: "Mou sukoshi jikan ga hoshii." },
-        { original: "時間が経つのは早い。", translation: "時間過得很快。", pronunciation: "Jikan ga tatsu no wa hayai." },
-      ],
-    },
-    "猫": {
-      meaning: "貓",
-      reading: "ねこ (neko)",
-      sentences: [
-        { original: "猫がソファで寝ている。", translation: "貓在沙發上睡覺。", pronunciation: "Neko ga sofua de nete iru." },
-        { original: "私は猫が大好きです。", translation: "我非常喜歡貓。", pronunciation: "Watashi wa neko ga daisuki desu." },
-        { original: "その猫はとても可愛い。", translation: "那隻貓很可愛。", pronunciation: "Sono neko wa totemo kawaii." },
-      ],
-    },
-    "本": {
-      meaning: "書",
-      reading: "ほん (hon)",
-      sentences: [
-        { original: "本を読むのが好きです。", translation: "喜歡讀書。", pronunciation: "Hon wo yomu no ga suki desu." },
-        { original: "この本はとても面白い。", translation: "這本書很有趣。", pronunciation: "Kono hon wa totemo omoshiroi." },
-        { original: "図書館で本を借りた。", translation: "在圖書館借了書。", pronunciation: "Toshokan de hon wo karita." },
-      ],
-    },
+    "愛": { meaning: "愛、愛情", reading: "あい (ai)" },
+    "夢": { meaning: "夢想、夢境", reading: "ゆめ (yume)" },
+    "時間": { meaning: "時間", reading: "じかん (jikan)" },
+    "猫": { meaning: "貓", reading: "ねこ (neko)" },
+    "本": { meaning: "書", reading: "ほん (hon)" },
+    "友達": { meaning: "朋友", reading: "ともだち (tomodachi)" },
+    "家族": { meaning: "家人", reading: "かぞく (kazoku)" },
+    "仕事": { meaning: "工作", reading: "しごと (shigoto)" },
+    "学校": { meaning: "學校", reading: "がっこう (gakkou)" },
+    "食べ物": { meaning: "食物", reading: "たべもの (tabemono)" },
   },
-  // 英語
   en: {
-    "serendipity": {
-      meaning: "意外發現珍貴事物的能力；機緣巧合",
-      sentences: [
-        { original: "Finding this café was pure serendipity.", translation: "發現這家咖啡館純屬機緣巧合。", pronunciation: "/ˌser.ənˈdɪp.ə.ti/" },
-        { original: "Serendipity often leads to the best discoveries.", translation: "意外發現往往帶來最好的收穫。", pronunciation: "/ˌser.ənˈdɪp.ə.ti/" },
-        { original: "I love the serendipity of travel.", translation: "我喜歡旅行中的意外驚喜。", pronunciation: "/ˌser.ənˈdɪp.ə.ti/" },
-      ],
-    },
-    "ephemeral": {
-      meaning: "短暫的、轉瞬即逝的",
-      sentences: [
-        { original: "Beauty is ephemeral.", translation: "美麗是短暫的。", pronunciation: "/ɪˈfem.ər.əl/" },
-        { original: "Social media trends are often ephemeral.", translation: "社交媒體趨勢通常是短暫的。", pronunciation: "/ɪˈfem.ər.əl/" },
-        { original: "Life is ephemeral, cherish every moment.", translation: "生命轉瞬即逝，珍惜每一刻。", pronunciation: "/ɪˈfem.ər.əl/" },
-      ],
-    },
-    "love": {
-      meaning: "愛、愛情",
-      sentences: [
-        { original: "Love conquers all.", translation: "愛能征服一切。", pronunciation: "/lʌv/" },
-        { original: "I love learning new languages.", translation: "我喜歡學習新語言。", pronunciation: "/lʌv/" },
-        { original: "Love is patient, love is kind.", translation: "愛是恆久忍耐，又有恩慈。", pronunciation: "/lʌv/" },
-      ],
-    },
-    "time": {
-      meaning: "時間",
-      sentences: [
-        { original: "Time flies when you're having fun.", translation: "快樂的時光過得特別快。", pronunciation: "/taɪm/" },
-        { original: "I need more time.", translation: "我需要更多時間。", pronunciation: "/taɪm/" },
-        { original: "Time heals all wounds.", translation: "時間治癒一切傷痛。", pronunciation: "/taɪm/" },
-      ],
-    },
-    "dream": {
-      meaning: "夢想、夢境",
-      sentences: [
-        { original: "Never give up on your dreams.", translation: "永遠不要放棄你的夢想。", pronunciation: "/driːm/" },
-        { original: "I had a strange dream last night.", translation: "我昨晚做了個奇怪的夢。", pronunciation: "/driːm/" },
-        { original: "Dream big and work hard.", translation: "敢於夢想，努力實現。", pronunciation: "/driːm/" },
-      ],
-    },
+    "serendipity": { meaning: "意外發現珍貴事物的能力" },
+    "ephemeral": { meaning: "短暫的、轉瞬即逝的" },
+    "love": { meaning: "愛、愛情" },
+    "time": { meaning: "時間" },
+    "dream": { meaning: "夢想、夢境" },
+    "friend": { meaning: "朋友" },
+    "family": { meaning: "家人" },
+    "work": { meaning: "工作" },
+    "school": { meaning: "學校" },
+    "food": { meaning: "食物" },
   },
-  // 中文
   zh: {
-    "夢": {
-      meaning: "夢想、夢境",
-      reading: "mèng",
-      sentences: [
-        { original: "追逐夢想永不放棄。", translation: "Chase dreams and never give up.", pronunciation: "zhuī zhú mèng xiǎng yǒng bù fàng qì" },
-        { original: "昨晚我做了一個美夢。", translation: "I had a beautiful dream last night.", pronunciation: "zuó wǎn wǒ zuò le yí gè měi mèng" },
-        { original: "夢想成真需要努力。", translation: "Making dreams come true requires effort.", pronunciation: "mèng xiǎng chéng zhēn xū yào nǔ lì" },
-      ],
-    },
-    "愛": {
-      meaning: "愛、愛情",
-      reading: "ài",
-      sentences: [
-        { original: "愛能戰勝一切。", translation: "Love conquers all.", pronunciation: "ài néng zhàn shèng yí qiè" },
-        { original: "母愛是最偉大的。", translation: "Mother's love is the greatest.", pronunciation: "mǔ ài shì zuì wěi dà de" },
-        { original: "我愛學習新語言。", translation: "I love learning new languages.", pronunciation: "wǒ ài xué xí xīn yǔ yán" },
-      ],
-    },
-    "時間": {
-      meaning: "時間",
-      reading: "shí jiān",
-      sentences: [
-        { original: "時間就是金錢。", translation: "Time is money.", pronunciation: "shí jiān jiù shì jīn qián" },
-        { original: "時間過得很快。", translation: "Time passes quickly.", pronunciation: "shí jiān guò de hěn kuài" },
-        { original: "請給我多一點時間。", translation: "Please give me more time.", pronunciation: "qǐng gěi wǒ duō yì diǎn shí jiān" },
-      ],
-    },
+    "夢": { meaning: "夢想、夢境", reading: "mèng" },
+    "愛": { meaning: "愛、愛情", reading: "ài" },
+    "時間": { meaning: "時間", reading: "shí jiān" },
+    "朋友": { meaning: "朋友", reading: "péng yǒu" },
+    "家人": { meaning: "家人", reading: "jiā rén" },
+    "工作": { meaning: "工作", reading: "gōng zuò" },
+    "學校": { meaning: "學校", reading: "xué xiào" },
+    "食物": { meaning: "食物", reading: "shí wù" },
   },
 };
 
-// 自動生成例句 (當數據庫沒有時)
-function generateSentences(word: string, lang: string): Array<{ original: string; translation: string; pronunciation?: string }> {
-  const templates: Record<string, string[]> = {
-    ja: [
-      `{word}について考えています。`,
-      `{word}はとても重要です。`,
-      `{word}を勉強しています。`,
-    ],
-    en: [
-      `I am thinking about {word}.`,
-      `{word} is very important.`,
-      `I am learning about {word}.`,
-    ],
-    zh: [
-      `我在思考{word}。`,
-      `{word}非常重要。`,
-      `我正在學習{word}。`,
-    ],
-  };
-  
-  const translations: Record<string, string[]> = {
-    ja: ["我正在思考{word}。", "{word}非常重要。", "我正在學習{word}。"],
-    en: ["我在思考{word}。", "{word}非常重要。", "我正在學習{word}。"],
-    zh: ["I'm thinking about {word}.", "{word} is very important.", "I'm learning about {word}."],
-  };
+// 獲取讀音
+function getReading(word: string, lang: string): string {
+  const db = localDatabase[lang]?.[word];
+  return db?.reading || "";
+}
 
-  const langTemplates = templates[lang] || templates.en;
-  const langTranslations = translations[lang] || translations.en;
-  
-  return langTemplates.map((template, i) => ({
-    original: template.replace(/{word}/g, word),
-    translation: langTranslations[i]?.replace(/{word}/g, word) || "",
-  }));
+// 獲取意思
+function getMeaning(word: string, lang: string): string {
+  const db = localDatabase[lang]?.[word];
+  return db?.meaning || "";
 }
 
 export default function LangLearn() {
   const [input, setInput] = useState("");
   const [selectedLang, setSelectedLang] = useState<"ja" | "en" | "zh">("ja");
   const [result, setResult] = useState<any>(null);
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<Array<{ word: string; lang: string }>>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // 載入歷史記錄
   useEffect(() => {
@@ -183,41 +75,41 @@ export default function LangLearn() {
     localStorage.setItem("lang-learn-history", JSON.stringify(history));
   }, [history]);
 
-  const handleSearch = () => {
+  const handleSearch = useCallback(async () => {
     if (!input.trim()) return;
     
     setIsSearching(true);
+    setError(null);
     
-    // 模擬 API 延遲
-    setTimeout(() => {
-      const langData = sentenceDatabase[selectedLang];
-      const wordData = langData?.[input.trim()];
+    try {
+      const word = input.trim();
       
-      if (wordData) {
-        setResult({
-          word: input.trim(),
-          ...wordData,
-          isGenerated: false,
-        });
-      } else {
-        // 生成通用例句
-        const generated = generateSentences(input.trim(), selectedLang);
-        setResult({
-          word: input.trim(),
-          meaning: "（自動生成）",
-          sentences: generated,
-          isGenerated: true,
-        });
-      }
+      // 獲取單字詳情
+      const details = await getWordDetails(word, selectedLang);
+      
+      // 合併本地數據庫信息
+      const localMeaning = getMeaning(word, selectedLang);
+      const localReading = getReading(word, selectedLang);
+      
+      setResult({
+        word,
+        meaning: localMeaning || details.meaning,
+        reading: localReading,
+        sentences: details.sentences,
+        isGenerated: details.meaning.includes("自動生成"),
+      });
       
       // 添加到歷史
-      if (!history.includes(input.trim())) {
-        setHistory(prev => [input.trim(), ...prev].slice(0, 20));
-      }
-      
+      setHistory(prev => {
+        const filtered = prev.filter(h => !(h.word === word && h.lang === selectedLang));
+        return [{ word, lang: selectedLang }, ...filtered].slice(0, 20);
+      });
+    } catch (err) {
+      setError("搜尋時發生錯誤，請重試");
+    } finally {
       setIsSearching(false);
-    }, 300);
-  };
+    }
+  }, [input, selectedLang]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -227,8 +119,12 @@ export default function LangLearn() {
 
   const playAudio = (text: string) => {
     if ("speechSynthesis" in window) {
+      // 停止之前的播放
+      window.speechSynthesis.cancel();
+      
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = selectedLang === "ja" ? "ja-JP" : selectedLang === "zh" ? "zh-TW" : "en-US";
+      utterance.rate = 0.9;
       window.speechSynthesis.speak(utterance);
     }
   };
@@ -236,6 +132,14 @@ export default function LangLearn() {
   const clearHistory = () => {
     setHistory([]);
     localStorage.removeItem("lang-learn-history");
+  };
+
+  const loadFromHistory = (word: string, lang: string) => {
+    setInput(word);
+    setSelectedLang(lang as any);
+    setTimeout(() => {
+      handleSearch();
+    }, 100);
   };
 
   return (
@@ -259,7 +163,10 @@ export default function LangLearn() {
           ] as const).map((lang) => (
             <button
               key={lang.code}
-              onClick={() => setSelectedLang(lang.code)}
+              onClick={() => {
+                setSelectedLang(lang.code);
+                setResult(null);
+              }}
               className={`px-4 py-2 rounded-full transition-all ${
                 selectedLang === lang.code
                   ? "bg-white text-purple-900 font-semibold shadow-lg"
@@ -278,7 +185,7 @@ export default function LangLearn() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={selectedLang === "ja" ? "輸入日文..." : selectedLang === "zh" ? "輸入中文..." : "Type English..."}
+            placeholder={selectedLang === "ja" ? "輸入日文... (例: 夢、愛、時間)" : selectedLang === "zh" ? "輸入中文... (例: 夢想、愛情)" : "Type English... (e.g., love, dream)"}
             className="w-full px-6 py-4 pr-14 text-lg bg-white/10 backdrop-blur border border-white/20 rounded-2xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all"
           />
           <button
@@ -286,9 +193,20 @@ export default function LangLearn() {
             disabled={isSearching || !input.trim()}
             className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-purple-500 hover:bg-purple-400 disabled:bg-white/10 rounded-xl transition-colors"
           >
-            <Search className="w-5 h-5 text-white" />
+            {isSearching ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <Search className="w-5 h-5 text-white" />
+            )}
           </button>
         </div>
+
+        {/* Error */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200 text-center">
+            {error}
+          </div>
+        )}
 
         {/* Result */}
         {result && (
@@ -301,19 +219,25 @@ export default function LangLearn() {
                   {result.reading && (
                     <p className="text-purple-300 text-lg">{result.reading}</p>
                   )}
-                  <p className="text-white/70 mt-2">{result.meaning}</p>
+                  {result.meaning && (
+                    <p className="text-white/70 mt-2">{result.meaning}</p>
+                  )}
                 </div>
                 <button
                   onClick={() => playAudio(result.word)}
                   className="p-3 bg-white/10 hover:bg-white/20 rounded-xl transition-colors"
+                  title="播放讀音"
                 >
                   <Volume2 className="w-6 h-6 text-white" />
                 </button>
               </div>
               {result.isGenerated && (
-                <span className="inline-block mt-3 px-2 py-1 bg-yellow-500/20 text-yellow-300 text-xs rounded-full">
-                  自動生成例句
-                </span>
+                <div className="flex items-center gap-2 mt-3">
+                  <span className="px-2 py-1 bg-yellow-500/20 text-yellow-300 text-xs rounded-full">
+                    智能生成例句
+                  </span>
+                  <span className="text-white/40 text-xs">已提供 8 種不同語境的例句</span>
+                </div>
               )}
             </div>
 
@@ -321,9 +245,9 @@ export default function LangLearn() {
             <div className="p-6">
               <h3 className="flex items-center gap-2 text-white/80 font-semibold mb-4">
                 <BookOpen className="w-5 h-5" />
-                例句
+                例句 ({result.sentences.length} 句)
               </h3>
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {result.sentences.map((sentence: any, idx: number) => (
                   <div
                     key={idx}
@@ -331,15 +255,19 @@ export default function LangLearn() {
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
-                        <p className="text-white text-lg mb-1">{sentence.original}</p>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs text-purple-400 font-mono">#{idx + 1}</span>
+                          <p className="text-white text-lg">{sentence.original}</p>
+                        </div>
                         {sentence.pronunciation && (
-                          <p className="text-purple-300 text-sm mb-2">{sentence.pronunciation}</p>
+                          <p className="text-purple-300 text-sm mb-2 font-mono">{sentence.pronunciation}</p>
                         )}
                         <p className="text-white/60">{sentence.translation}</p>
                       </div>
                       <button
                         onClick={() => playAudio(sentence.original)}
                         className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0"
+                        title="播放例句"
                       >
                         <Volume2 className="w-4 h-4 text-white" />
                       </button>
@@ -368,26 +296,29 @@ export default function LangLearn() {
               </button>
             </div>
             <div className="flex flex-wrap gap-2">
-              {history.map((word) => (
+              {history.map((item) => (
                 <button
-                  key={word}
-                  onClick={() => {
-                    setInput(word);
-                    setTimeout(handleSearch, 100);
-                  }}
-                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white/80 rounded-lg text-sm transition-colors"
+                  key={`${item.word}-${item.lang}`}
+                  onClick={() => loadFromHistory(item.word, item.lang)}
+                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white/80 rounded-lg text-sm transition-colors flex items-center gap-1"
                 >
-                  {word}
+                  <Globe className="w-3 h-3 opacity-50" />
+                  {item.word}
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* Footer */}
-        <p className="text-center text-white/30 text-sm mt-8 pb-8">
-          輸入任意單字，立即獲取例句和讀音
-        </p>
+        {/* Tips */}
+        <div className="mt-8 text-center">
+          <p className="text-white/30 text-sm">
+            💡 輸入任意單字，獲取 8 種不同語境的例句
+          </p>
+          <p className="text-white/20 text-xs mt-2">
+            支援：日文 🇯🇵 | 英文 🇬🇧 | 中文 🇹🇼
+          </p>
+        </div>
       </div>
     </div>
   );
