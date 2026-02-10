@@ -30,48 +30,42 @@ export interface ModelConfig {
 }
 
 // 支援的模型列表
+// model_id 必須精確匹配 webllm.prebuiltAppConfig.model_list 中的 model_id
 export const availableModels: ModelConfig[] = [
-  {
-    id: 'gemma-2b',
-    name: 'Gemma 2B',
-    description: 'Google 官方，平衡速度與質量',
-    size: '~600MB',
-    modelId: 'gemma-2b-it-q4f16_1',
-  },
   {
     id: 'llama-3.2-1b',
     name: 'Llama 3.2 1B',
     description: 'Meta 最新，速度最快',
     size: '~400MB',
-    modelId: 'Llama-3.2-1B-Instruct-q4f16_1',
+    modelId: 'Llama-3.2-1B-Instruct-q4f32_1-MLC',
   },
   {
     id: 'llama-3.2-3b',
     name: 'Llama 3.2 3B',
     description: 'Meta 最新，質量更好',
     size: '~1.2GB',
-    modelId: 'Llama-3.2-3B-Instruct-q4f16_1',
+    modelId: 'Llama-3.2-3B-Instruct-q4f32_1-MLC',
   },
   {
     id: 'qwen-2.5-1.5b',
     name: 'Qwen 2.5 1.5B',
     description: '阿里巴巴，中文極強',
     size: '~800MB',
-    modelId: 'Qwen2.5-1.5B-Instruct-q4f16_1',
+    modelId: 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC',
   },
   {
     id: 'smollm-1.7b',
     name: 'SmolLM 1.7B',
     description: 'Hugging Face，最新小模型',
     size: '~750MB',
-    modelId: 'SmolLM-1.7B-Instruct-q4f16_1',
+    modelId: 'SmolLM2-1.7B-Instruct-q4f16_1-MLC',
   },
   {
     id: 'phi-3.5',
     name: 'Phi 3.5 Mini',
     description: 'Microsoft，推理能力強',
     size: '~900MB',
-    modelId: 'Phi-3.5-mini-instruct-q4f16_1',
+    modelId: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
   },
 ];
 
@@ -115,8 +109,8 @@ export function useWebLLM() {
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState<LoadingProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [currentModel, setCurrentModel] = useState<string>('gemma-2b');
-  const chatRef = useRef<webllm.ChatModule | null>(null);
+  const [currentModel, setCurrentModel] = useState<string>('llama-3.2-1b');
+  const chatRef = useRef<any>(null);
   const isClient = typeof window !== 'undefined';
 
   // 初始化或切換模型
@@ -132,36 +126,46 @@ export function useWebLLM() {
       
       // 如果已有模型，先卸載
       if (chatRef.current) {
-        await chatRef.current.unload();
+        try {
+          await chatRef.current.unload();
+        } catch (e) {
+          console.warn('Error unloading engine:', e);
+        }
         chatRef.current = null;
       }
       
-      const chat = new webllm.ChatModule();
-      
-      // 設置進度回調
-      chat.setInitProgressCallback((report: webllm.InitProgressReport) => {
-        setProgress({
-          text: report.text,
-          progress: report.progress,
-        });
+      // 使用 CreateMLCEngine API
+      const engine = await webllm.CreateMLCEngine(modelConfig.modelId, {
+        initProgressCallback: (report: any) => {
+          if (report) {
+            setProgress({
+              text: report.text || '載入中...',
+              progress: typeof report.progress === 'number' ? report.progress : 0,
+            });
+          }
+        },
       });
       
-      // 載入選擇的模型
-      await chat.reload(modelConfig.modelId, {
-        chat_opts: {
-          temperature: 0.7,
-          max_gen_len: 100,
-        }
-      });
-      
-      chatRef.current = chat;
+      chatRef.current = engine;
       setCurrentModel(modelId);
       setIsReady(true);
       setError(null);
     } catch (err: any) {
       console.error('WebLLM init failed:', err);
-      setError(err.message || '模型載入失敗');
-      setIsReady(false);
+      // 如果是模型不存在錯誤，嘗試使用第一個可用的模型
+      if (err.message && err.message.includes('Cannot find model')) {
+        setError('模型載入失敗，將使用 Llama 3.2 1B');
+        // 遞迴調用，改用備選模型
+        if (modelId !== 'llama-3.2-1b') {
+          setTimeout(() => loadModel('llama-3.2-1b'), 1000);
+        } else {
+          setError('模型載入失敗：沒有可用的備選模型');
+          setIsReady(false);
+        }
+      } else {
+        setError(err.message || '模型載入失敗');
+        setIsReady(false);
+      }
     } finally {
       setIsLoading(false);
       setProgress(null);
@@ -170,7 +174,7 @@ export function useWebLLM() {
 
   // 初始載入默認模型
   useEffect(() => {
-    loadModel('gemma-2b');
+    loadModel('llama-3.2-1b');
   }, [loadModel]);
 
   const generateSentences = useCallback(async (
@@ -184,13 +188,16 @@ export function useWebLLM() {
 
     for (const { name, prompt } of contexts) {
       try {
-        const userPrompt = `${config.systemPrompt}\n\n單字："${word}"\n語境：${prompt}\n\n請生成一個自然的例句：`;
-        
-        const response = await chatRef.current.generate(userPrompt, (step: number, msg: string) => {
-          console.log(`Generating step ${step}: ${msg}`);
+        const response = await chatRef.current.chat.completions.create({
+          messages: [
+            { role: 'system', content: config.systemPrompt },
+            { role: 'user', content: `單字："${word}"\n語境：${prompt}\n\n請生成一個自然的例句：` }
+          ],
+          temperature: 0.7,
+          max_tokens: 100,
         });
         
-        const generated = response.trim();
+        const generated = (response.choices?.[0]?.message?.content || '').trim();
         
         if (generated && generated.length > 5 && generated.length < 200) {
           const translation = await translate(generated, lang);
