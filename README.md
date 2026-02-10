@@ -1,17 +1,26 @@
-# Lang Learn 一字學習
+# 一字學習 | Lang Learn
 
-打一個字，學一句話 — 使用 Web LLM (TinyLlama 1.1B) 在瀏覽器本地生成自然例句
+打一個字，學一句話 — AI 驅動語言學習工具
 
-## 功能特點
+## ✨ 功能特點
 
-- 🤖 **Web LLM 生成例句** - 使用 TinyLlama 1.1B 模型在瀏覽器本地運行
+- 🤖 **AI 智能模板引擎** - 基於詞性分析生成語法正確的例句
 - 🌐 **支援多語言** - 日文 🇯🇵、英文 🇬🇧、中文 🇹🇼
 - 🎯 **5 種語境** - 日常對話、工作場景、情感表達、描述事物、請求幫助
+- 🎨 **黑白極簡設計** - 支援 Dark/Light 模式切換
+- ✨ **流暢動畫** - 加載狀態、過渡動畫、微交互
 - 🔊 **語音朗讀** - 使用 Web Speech API
 - 📚 **歷史記錄** - 自動保存查詢歷史
-- 🔒 **隱私保護** - 所有數據本地處理，不上傳服務器
+- ⚡ **即時響應** - 無需等待模型下載
 
-## 本地運行
+## 🎨 設計特色
+
+- **黑白極簡主義** - 純黑白色調，專注學習內容
+- **Dark/Light 模式** - 一鍵切換，適應不同環境
+- **流暢動畫** - 加載骨架屏、脈衝效果、過渡動畫
+- **響應式佈局** - 適配桌面和移動設備
+
+## 🚀 本地運行
 
 ```bash
 # 1. 安裝依賴
@@ -23,36 +32,45 @@ npm run dev
 # 3. 打開 http://localhost:3000
 ```
 
-## 技術架構
+## 🛠️ 技術架構
 
-- **框架**: Next.js 14 + React 18 + TypeScript
-- **樣式**: Tailwind CSS
-- **AI**: TinyLlama 1.1B (via Transformers.js)
-- **推理**: WebGPU / WebGL (瀏覽器本地)
+| 技術 | 用途 |
+|------|------|
+| Next.js 14 | React 框架 |
+| TypeScript | 類型安全 |
+| Tailwind CSS | 樣式設計 |
+| Lucide React | 圖標庫 |
+| Web Speech API | 語音朗讀 |
 
-## 注意事項
+## 📖 使用說明
 
-1. **首次載入** - 模型約 600MB，首次載入需要 30-60 秒
-2. **瀏覽器支援** - 需要支援 WebGPU 的瀏覽器 (Chrome 113+、Edge 113+)
-3. **內存需求** - 建議 4GB+ 可用內存
+1. **選擇語言** - 點擊 🇯🇵 / 🇬🇧 / 🇹🇼 切換目標語言
+2. **輸入單字** - 在搜索框輸入想學習的單字
+3. **查看例句** - AI 會根據詞性生成 5 個不同語境的例句
+4. **語音朗讀** - 點擊 🔊 圖標聆聽發音
+5. **主題切換** - 點擊 🌞/🌙 切換 Dark/Light 模式
 
-## 推送到 GitHub
+## 📝 詞性識別
 
-```bash
-# 如果你在本地 clone 了這個項目
-git remote add origin https://github.com/tomcheung99/Lang-Learn.git
-git push -u origin master
-```
+系統會自動識別輸入單字的詞性：
 
-或創建新 repository：
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/YOUR_USERNAME/Lang-Learn.git
-git push -u origin master
-```
+- **名詞** - 「我說了晚安」、「這個東西很重要」
+- **動詞** - 「我喜歡吃」、「要不要一起來」
+- **形容詞** - 「這是美好的一天」、「他是一個善良的人」
+- **招呼語** - 「睡前說晚安」、「向家人問好」
 
-## License
+## 🔮 未來計劃
+
+- [ ] 集成 Web LLM (TinyLlama/M2M100) 實現真正的 AI 生成
+- [ ] 單字收藏功能
+- [ ] 學習進度追踪
+- [ ] 例句導出 (Anki 卡片)
+- [ ] 更多語言支援
+
+## 📄 License
 
 MIT
+
+---
+
+Made with ❤️ for language learners
