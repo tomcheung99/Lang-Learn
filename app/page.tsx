@@ -420,25 +420,15 @@ export default function Home() {
           <div className="mb-8 bg-[var(--card)] border border-[var(--border)] rounded-2xl overflow-hidden animate-slide-up shadow-lg">
             {/* Word Header */}
             <div className="p-6 border-b border-[var(--border)]">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-3 mb-2">
-                    <h2 className="text-3xl md:text-4xl font-bold">{result.word}</h2>
-                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
-                      {langConfigs[selectedLang].name}
-                    </span>
-                  </div>
-                  
-                  <p className="text-[var(--text-secondary)]">{result.meaning}</p>
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <h2 className="text-3xl md:text-4xl font-bold">{result.word}</h2>
+                  <span className="px-2 py-1 text-xs font-medium rounded-full bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
+                    {langConfigs[selectedLang].name}
+                  </span>
                 </div>
                 
-                <button
-                  onClick={() => playAudio(result.word, selectedLang)}
-                  className="p-3 rounded-xl bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] 
-                             transition-colors group"
-                >
-                  <Volume2 className="w-6 h-6 group-hover:scale-110 transition-transform" />
-                </button>
+                <p className="text-[var(--text-secondary)]">{result.meaning}</p>
               </div>
             </div>
 
@@ -504,7 +494,8 @@ export default function Home() {
                       <button
                         onClick={() => playAudio(sentence.original, selectedLang)}
                         className="p-2 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--border)]
-                                   opacity-0 group-hover:opacity-100 transition-all duration-200"
+                                   transition-all duration-200"
+                        title="朗讀例句"
                       >
                         <Volume2 className="w-4 h-4" />
                       </button>

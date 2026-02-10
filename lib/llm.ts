@@ -27,6 +27,7 @@ export interface ModelConfig {
   description: string;
   size: string;
   modelId: string;
+  isThinking?: boolean; // 是否為推理/思考模型（Qwen3、Reasoning 等）
 }
 
 // 支援的模型列表
@@ -74,6 +75,7 @@ export const availableModels: ModelConfig[] = [
     description: '阿里最新超輕量，中文極強',
     size: '~900MB',
     modelId: 'Qwen3-0.6B-q4f16_1-MLC',
+    isThinking: true,
   },
   {
     id: 'qwen3-1.7b',
@@ -81,6 +83,7 @@ export const availableModels: ModelConfig[] = [
     description: 'Qwen3 系列，性能更強',
     size: '~1.3GB',
     modelId: 'Qwen3-1.7B-q4f16_1-MLC',
+    isThinking: true,
   },
   {
     id: 'qwen3-4b',
@@ -88,6 +91,7 @@ export const availableModels: ModelConfig[] = [
     description: 'Qwen3 中型版本，平衡之選',
     size: '~2.2GB',
     modelId: 'Qwen3-4B-q4f16_1-MLC',
+    isThinking: true,
   },
   {
     id: 'ministral-3-3b-instruct',
@@ -95,13 +99,6 @@ export const availableModels: ModelConfig[] = [
     description: 'Mistral 2026 最新 3B 系列',
     size: '~2.0GB',
     modelId: 'Ministral-3-3B-Instruct-2512-BF16-q4f16_1-MLC',
-  },
-  {
-    id: 'ministral-3-3b-reasoning',
-    name: 'Ministral-3 3B Reasoning',
-    description: 'Mistral 推理專用版本（2026新）',
-    size: '~2.0GB',
-    modelId: 'Ministral-3-3B-Reasoning-2512-q4f16_1-MLC',
   },
   {
     id: 'gemma-2-2b',
@@ -120,27 +117,73 @@ export const availableModels: ModelConfig[] = [
 ];
 
 // 語言配置
-export const langConfigs: Record<string, { placeholder: string; icon: string; voice: string; name: string; systemPrompt: string }> = {
+// systemPrompt 簡短指令，fewShot 提供大量多輪範例讓小模型穩定輸出
+export interface LangConfig {
+  placeholder: string;
+  icon: string;
+  voice: string;
+  name: string;
+  systemPrompt: string;
+  fewShot: Array<{ role: 'user' | 'assistant'; content: string }>;
+}
+
+export const langConfigs: Record<string, LangConfig> = {
   ja: { 
     placeholder: '輸入日文...', 
     icon: '🇯🇵', 
     voice: 'ja-JP', 
     name: '日本語',
-    systemPrompt: '你是日語教學助手。用戶會提供一個單字，你必須用這個單字造一個完整的日文句子（至少8個字），並附上中文翻譯。\n嚴格按此格式輸出：完整日文句子|中文翻譯\n注意：必須是完整句子，不能只輸出單字或詞語。不要輸出任何解釋。\n範例：今日は天気がいいです|今天天氣很好'
+    systemPrompt: '你是日語造句助手。用戶給你一個單字和語境，你用這個單字造一個完整自然的日文句子，並附中文翻譯。只輸出一行，格式：日文句子|中文翻譯。不要輸出任何其他內容。',
+    fewShot: [
+      { role: 'user', content: '單字：「食べる」\n語境：日常對話的例句\n\n請用「食べる」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: '毎朝パンを食べるのが私の習慣です|每天早上吃麵包是我的習慣' },
+      { role: 'user', content: '單字：「勉強」\n語境：工作場景的例句\n\n請用「勉強」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: '新しいプログラミング言語を勉強して、仕事に活かしたい|我想學習新的程式語言，應用在工作上' },
+      { role: 'user', content: '單字：「嬉しい」\n語境：情感表達的例句\n\n請用「嬉しい」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: '友達からの手紙を読んで、とても嬉しい気持ちになりました|讀了朋友的來信，心情變得非常開心' },
+      { role: 'user', content: '單字：「桜」\n語境：描述事物的例句\n\n請用「桜」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: '春になると公園の桜が美しく咲き誇ります|到了春天，公園的櫻花盛開得非常美麗' },
+      { role: 'user', content: '單字：「行く」\n語境：旅行出遊的例句\n\n請用「行く」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: '来月、家族と一緒に京都へ旅行に行く予定です|下個月，我打算和家人一起去京都旅行' },
+    ]
   },
   en: { 
     placeholder: 'Type English...', 
     icon: '🇬🇧', 
     voice: 'en-US', 
     name: 'English',
-    systemPrompt: 'You are an English teaching assistant. The user provides a word. You MUST generate a complete English sentence (at least 5 words) using it, with Chinese translation.\nStrictly follow this format: Complete English sentence|中文翻譯\nIMPORTANT: Output a FULL sentence, NOT just the word. No explanation.\nExample: The weather is beautiful today|今天天氣很美'
+    systemPrompt: 'You are a sentence-making assistant. The user gives you a word and a context. You make one complete natural English sentence using that word, with Chinese translation. Output exactly one line in this format: English sentence|中文翻譯. No other text.',
+    fewShot: [
+      { role: 'user', content: '單字：「happy」\n語境：日常對話的例句\n\n請用「happy」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: 'I feel so happy when I spend time with my family|和家人在一起的時候我感到非常開心' },
+      { role: 'user', content: '單字：「important」\n語境：工作場景的例句\n\n請用「important」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: 'It is important to meet the deadline for this project|按時完成這個專案的截止日期非常重要' },
+      { role: 'user', content: '單字：「beautiful」\n語境：描述事物的例句\n\n請用「beautiful」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: 'The sunset over the ocean was absolutely beautiful|海上的日落真是美極了' },
+      { role: 'user', content: '單字：「help」\n語境：請求幫助的例句\n\n請用「help」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: 'Could you please help me carry these heavy boxes upstairs|你能幫我把這些重箱子搬到樓上嗎' },
+      { role: 'user', content: '單字：「travel」\n語境：旅行出遊的例句\n\n請用「travel」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: 'I love to travel to different countries and experience new cultures|我喜歡去不同的國家旅行，體驗新的文化' },
+    ]
   },
   zh: { 
     placeholder: '輸入中文...', 
     icon: '🇹🇼', 
     voice: 'zh-TW', 
     name: '中文',
-    systemPrompt: '你是中文教學助手。用戶會提供一個單字，你必須用這個單字造一個完整的中文句子（至少8個字），並附上英文翻譯。\n嚴格按此格式輸出：完整中文句子|English translation\n注意：必須是完整句子，不能只輸出單字或詞語。不要輸出任何解釋。\n範例：我每天都會去公園散步|I go for a walk in the park every day'
+    systemPrompt: '你是中文造句助手。用戶給你一個單字和語境，你用這個單字造一個完整自然的中文句子，並附英文翻譯。只輸出一行，格式：中文句子|English translation。不要輸出任何其他內容。',
+    fewShot: [
+      { role: 'user', content: '單字：「開心」\n語境：日常對話的例句\n\n請用「開心」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: '今天和朋友一起去逛街，我覺得非常開心|I went shopping with my friends today and felt very happy' },
+      { role: 'user', content: '單字：「努力」\n語境：工作場景的例句\n\n請用「努力」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: '他每天都很努力地工作，希望能得到升職的機會|He works very hard every day, hoping to get a promotion' },
+      { role: 'user', content: '單字：「思念」\n語境：情感表達的例句\n\n請用「思念」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: '離開家鄉之後，我常常思念遠方的父母|After leaving my hometown, I often miss my parents far away' },
+      { role: 'user', content: '單字：「美味」\n語境：美食料理的例句\n\n請用「美味」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: '媽媽做的紅燒肉真的非常美味，讓人回味無窮|The braised pork my mom makes is really delicious and unforgettable' },
+      { role: 'user', content: '單字：「學習」\n語境：學術正式的例句\n\n請用「學習」造一個完整的句子，格式：句子|翻譯' },
+      { role: 'assistant', content: '持續學習新知識是提升個人競爭力的關鍵|Continuously learning new knowledge is the key to improving personal competitiveness' },
+    ]
   },
 };
 
@@ -196,18 +239,28 @@ async function generateOneSentence(
   contextName: string,
   contextPrompt: string,
   lang: string,
+  isThinking = false,
   attempt = 1
 ): Promise<Sentence | null> {
   const MAX_ATTEMPTS = 2;
   const sentenceStartTime = performance.now();
   
+  // 構建 few-shot 多輪對話 messages
+  const userContent = `單字：「${word}」\n語境：${contextPrompt}\n\n請用「${word}」造一個完整的句子，格式：句子|翻譯${isThinking ? ' /no_think' : ''}`;
+  
+  const messages: Array<{ role: string; content: string }> = [
+    { role: 'system', content: config.systemPrompt },
+    // 插入 few-shot 範例（多輪 user/assistant 交替）
+    ...((config as any).fewShot || []),
+    // 真正的用戶請求
+    { role: 'user', content: userContent }
+  ];
+  
   const response = await engine.chat.completions.create({
-    messages: [
-      { role: 'system', content: config.systemPrompt },
-      { role: 'user', content: `單字：「${word}」\n語境：${contextPrompt}\n\n請用「${word}」造一個完整的句子，格式：句子|翻譯` }
-    ],
+    messages,
     temperature: 0.7,
-    max_tokens: 200,
+    // 思考模型給更多 token 作為安全網（即使 /no_think 失效也有足夠空間）
+    max_tokens: isThinking ? 500 : 200,
   });
 
   const rawGenerated = (response.choices?.[0]?.message?.content || '').trim();
@@ -244,7 +297,7 @@ async function generateOneSentence(
   // 如果結果不完整（太短或只是單字），重試一次
   if (!sentence && attempt < MAX_ATTEMPTS) {
     console.log(`[WebLLM]   🔄 輸出不完整，重試第 ${attempt + 1} 次...`);
-    return generateOneSentence(engine, config, word, contextName, contextPrompt, lang, attempt + 1);
+    return generateOneSentence(engine, config, word, contextName, contextPrompt, lang, isThinking, attempt + 1);
   }
 
   return sentence;
@@ -354,9 +407,16 @@ export function useWebLLM() {
       ? allContexts.filter(c => selectedContextIds.includes(c.id))
       : allContexts.slice(0, 5); // 默認前5個
 
+    // 檢查當前模型是否為思考模型
+    const currentModelConfig = availableModels.find(m => m.id === currentModel);
+    const isThinking = currentModelConfig?.isThinking ?? false;
+    if (isThinking) {
+      console.log(`[WebLLM] 💭 思考模型偵測到，已啟用 /no_think 模式`);
+    }
+
     for (const { name, prompt } of selectedContexts) {
       try {
-        const sentence = await generateOneSentence(chatRef.current, config, word, name, prompt, lang);
+        const sentence = await generateOneSentence(chatRef.current, config, word, name, prompt, lang, isThinking);
         if (sentence) {
           sentences.push(sentence);
           if (onSentence) {
@@ -372,7 +432,7 @@ export function useWebLLM() {
     console.log(`[WebLLM] ✅ 生成完成: ${sentences.length} 個例句，總耗時 ${totalTime}s`);
     setIsGenerating(false);
     return sentences;
-  }, [isReady]);
+  }, [isReady, currentModel]);
 
   // 重新生成單條例句
   const regenerateSingle = useCallback(async (
@@ -386,16 +446,18 @@ export function useWebLLM() {
     if (!ctx) return null;
     
     const config = langConfigs[lang];
-    console.log(`[WebLLM] 🔄 重新生成: "${word}" [${ctx.name}]`);
+    const currentModelConfig = availableModels.find(m => m.id === currentModel);
+    const isThinking = currentModelConfig?.isThinking ?? false;
+    console.log(`[WebLLM] 🔄 重新生成: "${word}" [${ctx.name}]${isThinking ? ' (no_think)' : ''}`);
     
     try {
-      const sentence = await generateOneSentence(chatRef.current, config, word, ctx.name, ctx.prompt, lang);
+      const sentence = await generateOneSentence(chatRef.current, config, word, ctx.name, ctx.prompt, lang, isThinking);
       return sentence;
     } catch (e) {
       console.error('[WebLLM] ❌ Regenerate failed:', e);
       return null;
     }
-  }, [isReady]);
+  }, [isReady, currentModel]);
 
   return { 
     isReady, 
