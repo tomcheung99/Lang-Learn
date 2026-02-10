@@ -34,11 +34,15 @@ const contexts = [
 // Web LLM Hook
 export function useWebLLM() {
   const [isReady, setIsReady] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const generatorRef = useRef<any>(null);
+  const isClient = typeof window !== 'undefined';
 
   useEffect(() => {
+    // 只在客戶端載入模型
+    if (!isClient) return;
+    
     const loadModel = async () => {
       try {
         setIsLoading(true);
@@ -58,16 +62,32 @@ export function useWebLLM() {
         generatorRef.current = generator;
         setIsReady(true);
         setError(null);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Model load failed:', err);
-        setError('模型載入失敗，請檢查瀏覽器是否支援 WebGPU');
+        // 如果 WebGPU 失敗，嘗試 CPU 模式
+        try {
+          const { pipeline } = await import('@huggingface/transformers');
+          const generator = await pipeline(
+            'text-generation',
+            'onnx-community/TinyLlama-1.1B-Chat-v1.0',
+            {
+              dtype: 'q4f16',
+              device: 'cpu',
+            }
+          );
+          generatorRef.current = generator;
+          setIsReady(true);
+          setError(null);
+        } catch (cpuErr) {
+          setError('模型載入失敗，請檢查瀏覽器是否支援 WebGPU 或 WebAssembly');
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     loadModel();
-  }, []);
+  }, [isClient]);
 
   const generateSentences = useCallback(async (
     word: string,
@@ -163,27 +183,31 @@ export function playAudio(text: string, lang: string) {
 // 歷史記錄
 export function useHistory() {
   const [history, setHistory] = useState<Array<{ word: string; lang: string }>>([]);
+  const isClient = typeof window !== 'undefined';
 
   useEffect(() => {
+    if (!isClient) return;
     const saved = localStorage.getItem('lang-learn-history');
     if (saved) {
       setHistory(JSON.parse(saved));
     }
-  }, []);
+  }, [isClient]);
 
   const addToHistory = useCallback((word: string, lang: string) => {
+    if (!isClient) return;
     setHistory((prev) => {
       const filtered = prev.filter((h) => !(h.word === word && h.lang === lang));
       const newHistory = [{ word, lang }, ...filtered].slice(0, 20);
       localStorage.setItem('lang-learn-history', JSON.stringify(newHistory));
       return newHistory;
     });
-  }, []);
+  }, [isClient]);
 
   const clearHistory = useCallback(() => {
+    if (!isClient) return;
     setHistory([]);
     localStorage.removeItem('lang-learn-history');
-  }, []);
+  }, [isClient]);
 
   return { history, addToHistory, clearHistory };
 }
