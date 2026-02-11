@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, Settings2, Check, RefreshCw, Cloud, Monitor, Key, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, ChevronUp, Settings2, Check, RefreshCw, Cloud, Monitor, Key, Eye, EyeOff, AlertTriangle, Sliders } from 'lucide-react';
 import { useWebLLM, useOpenRouter, playAudio, useHistory, useTheme, langConfigs, availableModels, openRouterModels, allContexts, shouldUseCloud, type Sentence, type BackendMode } from '@/lib/llm';
 
 export default function Home() {
@@ -22,6 +22,7 @@ export default function Home() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [showMobileBanner, setShowMobileBanner] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   
   const webllm = useWebLLM();
   const openrouter = useOpenRouter();
@@ -97,9 +98,13 @@ export default function Home() {
       });
     };
 
-    await backend.generateSentences(word, selectedLang, selectedContexts, onSentence);
-
-    addToHistory(word, selectedLang);
+    try {
+      await backend.generateSentences(word, selectedLang, selectedContexts, onSentence);
+      addToHistory(word, selectedLang);
+    } catch (err) {
+      console.error('[Search] Error:', err);
+      // 防止 Safari "a problem repeatedly occurred" 錯誤
+    }
   }, [input, selectedLang, isReady, backend.generateSentences, addToHistory, currentModelConfig, selectedContexts]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -169,183 +174,171 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen neural-bg transition-theme">
-      <div className="mx-auto max-w-2xl px-4 py-8 md:py-12">
-        {/* Header */}
-        <header className="text-center mb-10">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="relative">
-              <Sparkles className="w-10 h-10 animate-pulse-slow text-[var(--accent)]" />
-              <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-current animate-bounce-slow" />
-            </div>
-            <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-              一字學習
-            </h1>
-            
-            {/* Theme Toggle */}
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-full hover:bg-[var(--bg-tertiary)] transition-colors"
-              aria-label="Toggle theme"
-            >
-              {theme === 'dark' ? (
-                <Sun className="w-5 h-5" />
-              ) : (
-                <Moon className="w-5 h-5" />
-              )}
-            </button>
+    <div className="min-h-screen neural-bg transition-theme flex flex-col">
+      <div className="mx-auto max-w-2xl px-4 py-4 md:py-8 w-full flex-1 flex flex-col">
+        {/* Header - Compact */}
+        <header className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-6 h-6 text-[var(--accent)]" />
+            <h1 className="text-xl font-bold tracking-tight">一字學習</h1>
           </div>
-          
-          <p className="text-[var(--text-secondary)] text-lg">
-            打一個字，學一句話
-          </p>
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+            aria-label="Toggle theme"
+          >
+            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
         </header>
 
-        {/* Backend Mode Toggle */}
-        <div className="mb-4 flex gap-2">
-          <button
-            onClick={() => { 
-              setBackendMode('webllm'); 
-              setResult(null); 
-              setShowMobileBanner(false);
-              if (typeof window !== 'undefined') localStorage.setItem('lang-learn-backend-preference', 'webllm');
-            }}
-            className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all duration-200
-                       ${backendMode === 'webllm'
-                         ? 'bg-[var(--accent)]/10 border-[var(--accent)] text-[var(--accent)]'
-                         : 'bg-[var(--card)] border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]'}`}
-          >
-            <Monitor className="w-4 h-4" />
-            <span className="text-sm font-medium">本地模型</span>
-          </button>
-          <button
-            onClick={() => { 
-              setBackendMode('openrouter'); 
-              setResult(null); 
-              setShowMobileBanner(false);
-              if (typeof window !== 'undefined') localStorage.setItem('lang-learn-backend-preference', 'openrouter');
-            }}
-            className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all duration-200
-                       ${backendMode === 'openrouter'
-                         ? 'bg-[var(--accent)]/10 border-[var(--accent)] text-[var(--accent)]'
-                         : 'bg-[var(--card)] border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]'}`}
-          >
-            <Cloud className="w-4 h-4" />
-            <span className="text-sm font-medium">雲端 API</span>
-          </button>
-        </div>
-
-        {/* Mobile Device Warning Banner */}
-        {showMobileBanner && backendMode === 'openrouter' && (
-          <div className="mb-4 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl animate-fade-in">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-yellow-600 mb-1">
-                  偵測到手機裝置或低記憶體
-                </p>
-                <p className="text-xs text-[var(--text-secondary)]">
-                  為避免崩潰，已自動切換至「雲端 API」模式。您也可以手動切換回「本地模型」（高階使用者，自負風險）。
-                </p>
-              </div>
-              <button
-                onClick={() => setShowMobileBanner(false)}
-                className="p-1 hover:bg-yellow-500/20 rounded transition-colors"
-              >
-                <X className="w-4 h-4 text-yellow-600" />
-              </button>
-            </div>
+        {/* Collapsible Settings Header */}
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          className="w-full mb-3 p-3 bg-[var(--card)] border border-[var(--border)] rounded-xl
+                     flex items-center justify-between hover:border-[var(--accent)] transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Sliders className="w-4 h-4 text-[var(--accent)]" />
+            <span className="text-sm font-medium">設定</span>
+            <span className="text-xs text-[var(--text-tertiary)]">
+              · {backendMode === 'openrouter' ? '雲端' : '本地'} · {currentModelConfig?.name || '...'}
+            </span>
           </div>
-        )}
+          {showSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
 
-        {/* OpenRouter API Key Input */}
-        {backendMode === 'openrouter' && !openrouter.hasServerKey && (
-          <div className="mb-4 p-4 bg-[var(--card)] border border-[var(--border)] rounded-xl animate-fade-in">
-            <div className="flex items-center gap-2 mb-3">
-              <Key className="w-4 h-4 text-[var(--accent)]" />
-              <span className="text-sm font-medium">OpenRouter API Key</span>
-              {openrouter.isReady && (
-                <span className="ml-auto text-xs text-green-500 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                  已設定
-                </span>
-              )}
-            </div>
+        {/* Collapsible Settings Panel */}
+        {showSettings && (
+          <div className="mb-4 space-y-3 animate-fade-in">
+            {/* Backend Mode Toggle */}
             <div className="flex gap-2">
-              <div className="relative flex-1">
-                <input
-                  type={showApiKey ? 'text' : 'password'}
-                  value={apiKeyInput || openrouter.apiKey}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
-                  placeholder="sk-or-v1-..."
-                  className="w-full px-3 py-2 pr-10 text-sm bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg
-                             placeholder-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent)]"
-                />
-                <button
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-                >
-                  {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
               <button
-                onClick={() => {
-                  const key = apiKeyInput || openrouter.apiKey;
-                  openrouter.saveApiKey(key);
-                  setApiKeyInput('');
+                onClick={() => { 
+                  setBackendMode('webllm'); 
+                  setResult(null); 
+                  setShowMobileBanner(false);
+                  if (typeof window !== 'undefined') localStorage.setItem('lang-learn-backend-preference', 'webllm');
                 }}
-                className="px-4 py-2 text-sm font-medium bg-[var(--accent)] text-[var(--bg-primary)] rounded-lg
-                           hover:opacity-90 transition-opacity"
+                className={`flex-1 flex items-center justify-center gap-1.5 p-2.5 rounded-lg border transition-all duration-200 text-sm
+                           ${backendMode === 'webllm'
+                             ? 'bg-[var(--accent)]/10 border-[var(--accent)] text-[var(--accent)]'
+                             : 'bg-[var(--card)] border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]'}`}
               >
-                儲存
+                <Monitor className="w-3.5 h-3.5" />
+                <span className="font-medium">本地</span>
+              </button>
+              <button
+                onClick={() => { 
+                  setBackendMode('openrouter'); 
+                  setResult(null); 
+                  setShowMobileBanner(false);
+                  if (typeof window !== 'undefined') localStorage.setItem('lang-learn-backend-preference', 'openrouter');
+                }}
+                className={`flex-1 flex items-center justify-center gap-1.5 p-2.5 rounded-lg border transition-all duration-200 text-sm
+                           ${backendMode === 'openrouter'
+                             ? 'bg-[var(--accent)]/10 border-[var(--accent)] text-[var(--accent)]'
+                             : 'bg-[var(--card)] border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]'}`}
+              >
+                <Cloud className="w-3.5 h-3.5" />
+                <span className="font-medium">雲端</span>
               </button>
             </div>
-            <p className="mt-2 text-xs text-[var(--text-tertiary)]">
-              免費取得：<a href="https://openrouter.ai/keys" target="_blank" rel="noopener" className="text-[var(--accent)] underline">openrouter.ai/keys</a>
-              　Qwen 2.5 7B 價格：<span className="text-[var(--accent)]">$0.02/百萬 tokens</span>（充值 $1 可用很久）
-            </p>
-          </div>
-        )}
 
-        {/* Server API Key Active Message */}
-        {backendMode === 'openrouter' && openrouter.hasServerKey && (
-          <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-xl animate-fade-in">
-            <div className="flex items-center gap-2 text-sm text-green-600">
-              <span className="w-2 h-2 rounded-full bg-green-500" />
-              已使用伺服器端 API Key，無需手動設定
-            </div>
-          </div>
-        )}
+            {/* Mobile Device Warning Banner (inside settings) */}
+            {showMobileBanner && backendMode === 'openrouter' && (
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-yellow-600">
+                    偵測到手機，已自動切換雲端避免崩潰
+                  </p>
+                  <button onClick={() => setShowMobileBanner(false)} className="ml-auto">
+                    <X className="w-3.5 h-3.5 text-yellow-600" />
+                  </button>
+                </div>
+              </div>
+            )}
 
-        {/* OpenRouter Model Selector */}
-        {backendMode === 'openrouter' && openrouter.isReady && (
-          <div className="mb-6">
-            <div className="flex items-center gap-2 mb-2 text-sm text-[var(--text-secondary)]">
-              <Cpu className="w-4 h-4" />
-              <span>選擇 API 模型</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {openRouterModels.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => openrouter.setOpenRouterModel(model.id)}
-                  className={`p-3 rounded-xl text-left transition-all
-                             ${currentModel === model.id
-                               ? 'bg-[var(--accent)]/10 border-2 border-[var(--accent)]'
-                               : 'bg-[var(--card)] border-2 border-[var(--border)] hover:border-[var(--text-tertiary)]'}`}
-                >
-                  <div className="font-medium text-sm mb-1">{model.name}</div>
-                  <div className="text-xs text-[var(--text-secondary)] mb-1">{model.description}</div>
-                  <div className="text-xs text-[var(--accent)]">{model.pricing}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+            {/* OpenRouter API Key Input */}
+            {backendMode === 'openrouter' && !openrouter.hasServerKey && (
+              <div className="p-3 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Key className="w-3.5 h-3.5 text-[var(--accent)]" />
+                  <span className="text-xs font-medium">API Key</span>
+                  {openrouter.isReady && (
+                    <span className="ml-auto text-xs text-green-500 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />已設定
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type={showApiKey ? 'text' : 'password'}
+                      value={apiKeyInput || openrouter.apiKey}
+                      onChange={(e) => setApiKeyInput(e.target.value)}
+                      placeholder="sk-or-v1-..."
+                      className="w-full px-2.5 py-1.5 pr-8 text-xs bg-[var(--card)] border border-[var(--border)] rounded
+                                 placeholder-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent)]"
+                    />
+                    <button
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]"
+                    >
+                      {showApiKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => { openrouter.saveApiKey(apiKeyInput || openrouter.apiKey); setApiKeyInput(''); }}
+                    className="px-3 py-1.5 text-xs font-medium bg-[var(--accent)] text-[var(--bg-primary)] rounded"
+                  >
+                    存
+                  </button>
+                </div>
+                <p className="mt-1.5 text-[10px] text-[var(--text-tertiary)]">
+                  <a href="https://openrouter.ai/keys" target="_blank" rel="noopener" className="text-[var(--accent)] underline">免費取得</a>
+                </p>
+              </div>
+            )}
 
-        {/* Model Selector (only for WebLLM) */}
-        {backendMode === 'webllm' && (
-        <div className="mb-6 relative">
+            {/* Server API Key Active Message */}
+            {backendMode === 'openrouter' && openrouter.hasServerKey && (
+              <div className="p-2 bg-green-500/10 border border-green-500/30 rounded-lg">
+                <div className="flex items-center gap-1.5 text-xs text-green-600">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                  已使用伺服器端 API Key
+                </div>
+              </div>
+            )}
+
+            {/* OpenRouter Model Selector */}
+            {backendMode === 'openrouter' && openrouter.isReady && (
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5 text-xs text-[var(--text-secondary)]">
+                  <Cpu className="w-3.5 h-3.5" />
+                  <span>模型</span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {openRouterModels.map((model) => (
+                    <button
+                      key={model.id}
+                      onClick={() => openrouter.setOpenRouterModel(model.id)}
+                      className={`p-2 rounded-lg text-left transition-all
+                                 ${currentModel === model.id
+                                   ? 'bg-[var(--accent)]/10 border border-[var(--accent)]'
+                                   : 'bg-[var(--card)] border border-[var(--border)] hover:border-[var(--text-tertiary)]'}`}
+                    >
+                      <div className="font-medium text-xs truncate">{model.name}</div>
+                      <div className="text-[10px] text-[var(--accent)]">{model.pricing}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Model Selector (only for WebLLM) */}
+            {backendMode === 'webllm' && (
+            <div className="relative">
           <button
             onClick={() => setShowModelSelector(!showModelSelector)}
             disabled={isLoading}
@@ -404,6 +397,8 @@ export default function Home() {
             </div>
           )}
         </div>
+        )}
+          </div>
         )}
 
         {/* Model Status */}
@@ -471,8 +466,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* Language Selector */}
-        <div className="flex justify-center gap-2 mb-8">
+        {/* Language Selector - Compact */}
+        <div className="flex justify-center gap-1.5 mb-6">
           {(['ja', 'en', 'zh'] as const).map((lang) => (
             <button
               key={lang}
@@ -481,14 +476,14 @@ export default function Home() {
                 setResult(null);
               }}
               disabled={isLoading || !!error}
-              className={`px-5 py-2.5 rounded-full font-medium transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
                 selectedLang === lang
-                  ? 'bg-[var(--accent)] text-[var(--bg-primary)] shadow-lg'
+                  ? 'bg-[var(--accent)] text-[var(--bg-primary)] shadow-md'
                   : 'bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)]'
               } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
-              <span className="mr-2">{langConfigs[lang].icon}</span>
-              {langConfigs[lang].name}
+              <span className="mr-1">{langConfigs[lang].icon}</span>
+              <span className="hidden sm:inline">{langConfigs[lang].name}</span>
             </button>
           ))}
         </div>
@@ -745,7 +740,7 @@ export default function Home() {
         )}
 
         {/* Footer */}
-        <footer className="mt-12 text-center text-[var(--text-tertiary)] text-sm">
+        <footer className="mt-auto pt-8 text-center text-[var(--text-tertiary)] text-sm border-t border-[var(--border)]">
           <p className="flex items-center justify-center gap-2">
             <Sparkles className="w-4 h-4" />
             Powered by {backendMode === 'webllm' ? 'WebLLM' : 'OpenRouter API'}

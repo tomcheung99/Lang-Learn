@@ -538,6 +538,10 @@ async function generateOneSentenceAPI(
     { role: 'user', content: userContent }
   ];
 
+  // 使用 AbortController 設定超時，避免 Safari "a problem repeatedly occurred"
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30秒超時
+
   try {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -553,12 +557,16 @@ async function generateOneSentenceAPI(
         temperature: 0.7,
         max_tokens: 500,
       }),
+      signal: controller.signal,
     });
 
+    clearTimeout(timeoutId);
+
     if (!res.ok) {
-      const errBody = await res.text();
+      const errBody = await res.text().catch(() => 'Unknown error');
       console.error(`[OpenRouter] ❌ HTTP ${res.status}: ${errBody}`);
       if (attempt < MAX_ATTEMPTS) {
+        await new Promise(r => setTimeout(r, 500)); // 短暫延遲避免過快重試
         return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, modelId, attempt + 1);
       }
       return null;
@@ -591,13 +599,23 @@ async function generateOneSentenceAPI(
 
     if (!sentence && attempt < MAX_ATTEMPTS) {
       console.log(`[OpenRouter] 🔄 輸出不完整，重試第 ${attempt + 1} 次...`);
+      await new Promise(r => setTimeout(r, 300));
       return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, modelId, attempt + 1);
     }
 
     return sentence;
-  } catch (e) {
-    console.error('[OpenRouter] ❌ Fetch error:', e);
+  } catch (e: any) {
+    clearTimeout(timeoutId);
+    
+    // 區分超時錯誤和其他錯誤
+    if (e.name === 'AbortError') {
+      console.error(`[OpenRouter] ⏱️ 請求超時: [${contextName}]`);
+    } else {
+      console.error('[OpenRouter] ❌ Fetch error:', e?.message || e);
+    }
+    
     if (attempt < MAX_ATTEMPTS) {
+      await new Promise(r => setTimeout(r, 500));
       return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, modelId, attempt + 1);
     }
     return null;
