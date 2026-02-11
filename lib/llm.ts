@@ -54,8 +54,45 @@ export const availableModels: ModelConfig[] = [
 // ===== 後端模式 =====
 export type BackendMode = 'webllm' | 'openrouter';
 
-// OpenRouter 模型 ID（付費版，但價格極低：$0.02/百萬 tokens）
-const OPENROUTER_MODEL = 'qwen/qwen3-4b';
+// OpenRouter 模型配置
+export interface OpenRouterModelConfig {
+  id: string;
+  name: string;
+  description: string;
+  modelId: string;
+  pricing: string;
+}
+
+export const openRouterModels: OpenRouterModelConfig[] = [
+  {
+    id: 'qwen3-4b',
+    name: 'Qwen3 4B',
+    description: '小巧高效，適合快速生成',
+    modelId: 'qwen/qwen3-4b',
+    pricing: '$0.02/M',
+  },
+  {
+    id: 'qwen3-8b',
+    name: 'Qwen3 8B',
+    description: '性能均衡，推薦使用',
+    modelId: 'qwen/qwen3-8b',
+    pricing: '$0.06/M',
+  },
+  {
+    id: 'qwen3-32b',
+    name: 'Qwen3 32B',
+    description: '質量最佳，複雜任務首選',
+    modelId: 'qwen/qwen3-32b',
+    pricing: '$0.24/M',
+  },
+  {
+    id: 'gpt-oss-20b',
+    name: 'GPT OSS 20B',
+    description: '開源推理模型，邏輯能力強',
+    modelId: 'openai/gpt-oss-20b',
+    pricing: '$0.14/M',
+  }
+];
 
 // 語言配置
 // systemPrompt 簡短指令，fewShot 提供大量多輪範例讓小模型穩定輸出
@@ -423,6 +460,7 @@ async function generateOneSentenceAPI(
   contextName: string,
   contextPrompt: string,
   lang: string,
+  modelId: string,
   attempt = 1
 ): Promise<Sentence | null> {
   const MAX_ATTEMPTS = 2;
@@ -446,7 +484,7 @@ async function generateOneSentenceAPI(
         'X-Title': 'Lang-Learn',
       },
       body: JSON.stringify({
-        model: OPENROUTER_MODEL,
+        model: modelId,
         messages,
         temperature: 0.7,
         max_tokens: 500,
@@ -457,7 +495,7 @@ async function generateOneSentenceAPI(
       const errBody = await res.text();
       console.error(`[OpenRouter] ❌ HTTP ${res.status}: ${errBody}`);
       if (attempt < MAX_ATTEMPTS) {
-        return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, attempt + 1);
+        return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, modelId, attempt + 1);
       }
       return null;
     }
@@ -489,14 +527,14 @@ async function generateOneSentenceAPI(
 
     if (!sentence && attempt < MAX_ATTEMPTS) {
       console.log(`[OpenRouter] 🔄 輸出不完整，重試第 ${attempt + 1} 次...`);
-      return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, attempt + 1);
+      return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, modelId, attempt + 1);
     }
 
     return sentence;
   } catch (e) {
     console.error('[OpenRouter] ❌ Fetch error:', e);
     if (attempt < MAX_ATTEMPTS) {
-      return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, attempt + 1);
+      return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, modelId, attempt + 1);
     }
     return null;
   }
@@ -506,6 +544,7 @@ async function generateOneSentenceAPI(
 export function useOpenRouter() {
   const [apiKey, setApiKey] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [currentOpenRouterModel, setCurrentOpenRouterModel] = useState<string>('qwen3-8b');
   const isClient = typeof window !== 'undefined';
 
   // 優先使用環境變數的 API key（伺服器端設定），否則從 localStorage 讀取
@@ -517,6 +556,8 @@ export function useOpenRouter() {
     if (!isClient || hasServerKey) return;
     const saved = localStorage.getItem('lang-learn-openrouter-key');
     if (saved) setApiKey(saved);
+    const savedModel = localStorage.getItem('lang-learn-openrouter-model');
+    if (savedModel) setCurrentOpenRouterModel(savedModel);
   }, [isClient, hasServerKey]);
 
   const saveApiKey = useCallback((key: string) => {
@@ -530,6 +571,13 @@ export function useOpenRouter() {
       }
     }
   }, [isClient, hasServerKey]);
+
+  const setOpenRouterModel = useCallback((modelId: string) => {
+    setCurrentOpenRouterModel(modelId);
+    if (isClient) {
+      localStorage.setItem('lang-learn-openrouter-model', modelId);
+    }
+  }, [isClient]);
 
   const isReady = !!effectiveApiKey;
 
@@ -553,7 +601,9 @@ export function useOpenRouter() {
 
     for (const { name, prompt } of selectedContexts) {
       try {
-        const sentence = await generateOneSentenceAPI(effectiveApiKey, config, word, name, prompt, lang);
+        const modelConfig = openRouterModels.find(m => m.id === currentOpenRouterModel);
+        const modelIdToUse = modelConfig?.modelId || 'qwen/qwen3-8b';
+        const sentence = await generateOneSentenceAPI(effectiveApiKey, config, word, name, prompt, lang, modelIdToUse);
         if (sentence) {
           sentences.push(sentence);
           if (onSentence) onSentence(sentence);
@@ -567,7 +617,7 @@ export function useOpenRouter() {
     console.log(`[OpenRouter] ✅ 生成完成: ${sentences.length} 個例句，總耗時 ${totalTime}s`);
     setIsGenerating(false);
     return sentences;
-  }, [effectiveApiKey]);
+  }, [effectiveApiKey, currentOpenRouterModel]);
 
   const regenerateSingle = useCallback(async (
     word: string,
@@ -580,12 +630,14 @@ export function useOpenRouter() {
     const config = langConfigs[lang];
     console.log(`[OpenRouter] 🔄 重新生成: "${word}" [${ctx.name}]`);
     try {
-      return await generateOneSentenceAPI(effectiveApiKey, config, word, ctx.name, ctx.prompt, lang);
+      const modelConfig = openRouterModels.find(m => m.id === currentOpenRouterModel);
+      const modelIdToUse = modelConfig?.modelId || 'qwen/qwen3-8b';
+      return await generateOneSentenceAPI(effectiveApiKey, config, word, ctx.name, ctx.prompt, lang, modelIdToUse);
     } catch (e) {
       console.error('[OpenRouter] ❌ Regenerate failed:', e);
       return null;
     }
-  }, [effectiveApiKey]);
+  }, [effectiveApiKey, currentOpenRouterModel]);
 
   return {
     isReady,
@@ -593,11 +645,12 @@ export function useOpenRouter() {
     isGenerating,
     progress: null as LoadingProgress | null,
     error: effectiveApiKey ? null : '請輸入 OpenRouter API Key',
-    currentModel: 'openrouter-qwen3-4b',
+    currentModel: currentOpenRouterModel,
     loadingModelName: null as string | null,
     apiKey,
     hasServerKey,
     saveApiKey,
+    setOpenRouterModel,
     generateSentences,
     regenerateSingle,
   };

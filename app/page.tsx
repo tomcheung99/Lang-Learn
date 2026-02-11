@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, Settings2, Check, RefreshCw, Cloud, Monitor, Key, Eye, EyeOff } from 'lucide-react';
-import { useWebLLM, useOpenRouter, playAudio, useHistory, useTheme, langConfigs, availableModels, allContexts, type Sentence, type BackendMode } from '@/lib/llm';
+import { useWebLLM, useOpenRouter, playAudio, useHistory, useTheme, langConfigs, availableModels, openRouterModels, allContexts, type Sentence, type BackendMode } from '@/lib/llm';
 
 export default function Home() {
   const [input, setInput] = useState('');
@@ -54,7 +54,7 @@ export default function Home() {
 
   const currentModelConfig = backendMode === 'webllm' 
     ? availableModels.find(m => m.id === currentModel)
-    : { name: 'Qwen3 4B (API)', description: 'OpenRouter 雲端 API，任何裝置可用（$0.02/百萬 tokens）', size: '雲端' };
+    : openRouterModels.find(m => m.id === currentModel);
 
   const handleSearch = useCallback(async () => {
     if (!input.trim() || !isReady) return;
@@ -251,7 +251,7 @@ export default function Home() {
             </div>
             <p className="mt-2 text-xs text-[var(--text-tertiary)]">
               免費取得：<a href="https://openrouter.ai/keys" target="_blank" rel="noopener" className="text-[var(--accent)] underline">openrouter.ai/keys</a>
-              　Qwen3 4B 價格：<span className="text-[var(--accent)]">$0.02/百萬 tokens</span>（充值 $1 可用很久）
+              　Qwen 2.5 7B 價格：<span className="text-[var(--accent)]">$0.02/百萬 tokens</span>（充值 $1 可用很久）
             </p>
           </div>
         )}
@@ -262,6 +262,32 @@ export default function Home() {
             <div className="flex items-center gap-2 text-sm text-green-600">
               <span className="w-2 h-2 rounded-full bg-green-500" />
               已使用伺服器端 API Key，無需手動設定
+            </div>
+          </div>
+        )}
+
+        {/* OpenRouter Model Selector */}
+        {backendMode === 'openrouter' && openrouter.isReady && (
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-2 text-sm text-[var(--text-secondary)]">
+              <Cpu className="w-4 h-4" />
+              <span>選擇 API 模型</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {openRouterModels.map((model) => (
+                <button
+                  key={model.id}
+                  onClick={() => openrouter.setOpenRouterModel(model.id)}
+                  className={`p-3 rounded-xl text-left transition-all
+                             ${currentModel === model.id
+                               ? 'bg-[var(--accent)]/10 border-2 border-[var(--accent)]'
+                               : 'bg-[var(--card)] border-2 border-[var(--border)] hover:border-[var(--text-tertiary)]'}`}
+                >
+                  <div className="font-medium text-sm mb-1">{model.name}</div>
+                  <div className="text-xs text-[var(--text-secondary)] mb-1">{model.description}</div>
+                  <div className="text-xs text-[var(--accent)]">{model.pricing}</div>
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -289,7 +315,7 @@ export default function Home() {
             
             <div className="flex items-center gap-2">
               <span className="text-xs text-[var(--text-tertiary)]">
-                {currentModelConfig?.size || ''}
+                {backendMode === 'webllm' && currentModelConfig && 'size' in currentModelConfig ? currentModelConfig.size : ''}
               </span>
               <ChevronDown className={`w-5 h-5 transition-transform ${showModelSelector ? 'rotate-180' : ''}`} />
             </div>
@@ -356,7 +382,7 @@ export default function Home() {
             <>
               <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
               {backendMode === 'openrouter' ? (
-                <><Cloud className="w-3.5 h-3.5" /> Qwen3 4B (OpenRouter) 已就緒</>
+                <><Cloud className="w-3.5 h-3.5" /> {currentModelConfig?.name || 'OpenRouter'} 已就緒</>
               ) : (
                 <>{currentModelConfig?.name} 已就緒</>
               )}
