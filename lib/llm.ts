@@ -34,53 +34,9 @@ export interface ModelConfig {
 // model_id 必須精確匹配 webllm.prebuiltAppConfig.model_list 中的 model_id
 export const availableModels: ModelConfig[] = [
   {
-    id: 'llama-3.2-1b',
-    name: 'Llama 3.2 1B',
-    description: 'Meta 最新，速度最快',
-    size: '~400MB',
-    modelId: 'Llama-3.2-1B-Instruct-q4f32_1-MLC',
-  },
-  {
-    id: 'llama-3.2-3b',
-    name: 'Llama 3.2 3B',
-    description: 'Meta 最新，質量更好',
-    size: '~1.2GB',
-    modelId: 'Llama-3.2-3B-Instruct-q4f32_1-MLC',
-  },
-  {
-    id: 'qwen-2.5-1.5b',
-    name: 'Qwen 2.5 1.5B',
-    description: '阿里巴巴，中文極強',
-    size: '~800MB',
-    modelId: 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC',
-  },
-  {
-    id: 'smollm-1.7b',
-    name: 'SmolLM 1.7B',
-    description: 'Hugging Face，最新小模型',
-    size: '~750MB',
-    modelId: 'SmolLM2-1.7B-Instruct-q4f16_1-MLC',
-  },
-  {
-    id: 'phi-3.5',
-    name: 'Phi 3.5 Mini',
-    description: 'Microsoft，推理能力強',
-    size: '~900MB',
-    modelId: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
-  },
-  // 2025-2026 最新模型
-  {
-    id: 'qwen3-0.6b',
-    name: 'Qwen3 0.6B',
-    description: '阿里最新超輕量，中文極強',
-    size: '~900MB',
-    modelId: 'Qwen3-0.6B-q4f16_1-MLC',
-    isThinking: true,
-  },
-  {
     id: 'qwen3-1.7b',
     name: 'Qwen3 1.7B',
-    description: 'Qwen3 系列，性能更強',
+    description: '速度快，中日英表現穩定',
     size: '~1.3GB',
     modelId: 'Qwen3-1.7B-q4f16_1-MLC',
     isThinking: true,
@@ -88,33 +44,18 @@ export const availableModels: ModelConfig[] = [
   {
     id: 'qwen3-4b',
     name: 'Qwen3 4B',
-    description: 'Qwen3 中型版本，平衡之選',
+    description: '質量最佳，推薦使用',
     size: '~2.2GB',
     modelId: 'Qwen3-4B-q4f16_1-MLC',
     isThinking: true,
   },
-  {
-    id: 'ministral-3-3b-instruct',
-    name: 'Ministral-3 3B Instruct',
-    description: 'Mistral 2026 最新 3B 系列',
-    size: '~2.0GB',
-    modelId: 'Ministral-3-3B-Instruct-2512-BF16-q4f16_1-MLC',
-  },
-  {
-    id: 'gemma-2-2b',
-    name: 'Gemma-2 2B',
-    description: 'Google 最新 Gemma 2 系列',
-    size: '~1.3GB',
-    modelId: 'gemma-2-2b-it-q4f16_1-MLC',
-  },
-  {
-    id: 'qwen2.5-coder-1.5b',
-    name: 'Qwen2.5-Coder 1.5B',
-    description: '專業程式碼生成模型',
-    size: '~1.0GB',
-    modelId: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC',
-  },
 ];
+
+// ===== 後端模式 =====
+export type BackendMode = 'webllm' | 'openrouter';
+
+// OpenRouter 模型 ID（付費版，但價格極低：$0.02/百萬 tokens）
+const OPENROUTER_MODEL = 'qwen/qwen3-4b';
 
 // 語言配置
 // systemPrompt 簡短指令，fewShot 提供大量多輪範例讓小模型穩定輸出
@@ -310,7 +251,7 @@ export function useWebLLM() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<LoadingProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [currentModel, setCurrentModel] = useState<string>('llama-3.2-1b');
+  const [currentModel, setCurrentModel] = useState<string>('qwen3-1.7b');
   const [loadingModelName, setLoadingModelName] = useState<string | null>(null);
   const chatRef = useRef<any>(null);
   const isClient = typeof window !== 'undefined';
@@ -363,10 +304,10 @@ export function useWebLLM() {
       console.error('WebLLM init failed:', err);
       // 如果是模型不存在錯誤，嘗試使用第一個可用的模型
       if (err.message && err.message.includes('Cannot find model')) {
-        setError('模型載入失敗，將使用 Llama 3.2 1B');
+        setError('模型載入失敗，將使用 Qwen3 1.7B');
         // 遞迴調用，改用備選模型
-        if (modelId !== 'llama-3.2-1b') {
-          setTimeout(() => loadModel('llama-3.2-1b'), 1000);
+        if (modelId !== 'qwen3-1.7b') {
+          setTimeout(() => loadModel('qwen3-1.7b'), 1000);
         } else {
           setError('模型載入失敗：沒有可用的備選模型');
           setIsReady(false);
@@ -384,7 +325,7 @@ export function useWebLLM() {
 
   // 初始載入默認模型
   useEffect(() => {
-    loadModel('llama-3.2-1b');
+    loadModel('qwen3-1.7b');
   }, [loadModel]);
 
   const generateSentences = useCallback(async (
@@ -467,10 +408,198 @@ export function useWebLLM() {
     error, 
     currentModel,
     loadingModelName,
-    availableModels,
     loadModel,
     generateSentences,
     regenerateSingle 
+  };
+}
+
+// ===== OpenRouter API 後端 =====
+// 透過 OpenRouter API 生成單條例句（供手機等不支援 WebGPU 的裝置使用）
+async function generateOneSentenceAPI(
+  apiKey: string,
+  config: { systemPrompt: string },
+  word: string,
+  contextName: string,
+  contextPrompt: string,
+  lang: string,
+  attempt = 1
+): Promise<Sentence | null> {
+  const MAX_ATTEMPTS = 2;
+  const sentenceStartTime = performance.now();
+  
+  const userContent = `單字：「${word}」\n語境：${contextPrompt}\n\n請用「${word}」造一個完整的句子，格式：句子|翻譯 /no_think`;
+  
+  const messages = [
+    { role: 'system', content: config.systemPrompt },
+    ...((config as any).fewShot || []),
+    { role: 'user', content: userContent }
+  ];
+
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://lang-learn.vercel.app',
+        'X-Title': 'Lang-Learn',
+      },
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        messages,
+        temperature: 0.7,
+        max_tokens: 500,
+      }),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      console.error(`[OpenRouter] ❌ HTTP ${res.status}: ${errBody}`);
+      if (attempt < MAX_ATTEMPTS) {
+        return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, attempt + 1);
+      }
+      return null;
+    }
+
+    const data = await res.json();
+    const rawGenerated = (data.choices?.[0]?.message?.content || '').trim();
+    const generated = stripThinkingTags(rawGenerated);
+
+    const sentenceTime = ((performance.now() - sentenceStartTime) / 1000).toFixed(1);
+    console.log(`[OpenRouter] 📝 [${contextName}] ${sentenceTime}s (attempt ${attempt}) - "${rawGenerated.substring(0, 100)}"`);
+
+    let sentence: Sentence | null = null;
+
+    if (generated && generated.includes('|')) {
+      const parts = generated.split('|');
+      const original = parts[0].trim();
+      const translation = parts.slice(1).join('|').trim();
+      if (original && translation && original.length > 4 && original.length < 300
+          && original !== word && original.length > word.length + 2) {
+        sentence = { original, translation, context: contextName };
+      }
+    }
+
+    if (!sentence && generated && generated.length > 6 && generated.length < 300
+        && generated !== word && generated.length > word.length + 2) {
+      const translation = await translate(generated, lang);
+      sentence = { original: generated, translation, context: contextName };
+    }
+
+    if (!sentence && attempt < MAX_ATTEMPTS) {
+      console.log(`[OpenRouter] 🔄 輸出不完整，重試第 ${attempt + 1} 次...`);
+      return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, attempt + 1);
+    }
+
+    return sentence;
+  } catch (e) {
+    console.error('[OpenRouter] ❌ Fetch error:', e);
+    if (attempt < MAX_ATTEMPTS) {
+      return generateOneSentenceAPI(apiKey, config, word, contextName, contextPrompt, lang, attempt + 1);
+    }
+    return null;
+  }
+}
+
+// OpenRouter Hook（API 模式，手機也能用）
+export function useOpenRouter() {
+  const [apiKey, setApiKey] = useState<string>('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const isClient = typeof window !== 'undefined';
+
+  // 優先使用環境變數的 API key（伺服器端設定），否則從 localStorage 讀取
+  const serverApiKey = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_OPENROUTER_API_KEY : undefined;
+  const effectiveApiKey = serverApiKey || apiKey;
+  const hasServerKey = !!serverApiKey;
+
+  useEffect(() => {
+    if (!isClient || hasServerKey) return;
+    const saved = localStorage.getItem('lang-learn-openrouter-key');
+    if (saved) setApiKey(saved);
+  }, [isClient, hasServerKey]);
+
+  const saveApiKey = useCallback((key: string) => {
+    if (hasServerKey) return; // 伺服器端已有 key，不需要儲存
+    setApiKey(key);
+    if (isClient) {
+      if (key) {
+        localStorage.setItem('lang-learn-openrouter-key', key);
+      } else {
+        localStorage.removeItem('lang-learn-openrouter-key');
+      }
+    }
+  }, [isClient, hasServerKey]);
+
+  const isReady = !!effectiveApiKey;
+
+  const generateSentences = useCallback(async (
+    word: string,
+    lang: string,
+    selectedContextIds?: string[],
+    onSentence?: (sentence: Sentence) => void
+  ): Promise<Sentence[]> => {
+    if (!effectiveApiKey) return [];
+
+    setIsGenerating(true);
+    const totalStartTime = performance.now();
+    console.log(`[OpenRouter] 🔄 開始生成例句: "${word}" (${lang})`);
+
+    const sentences: Sentence[] = [];
+    const config = langConfigs[lang];
+    const selectedContexts = selectedContextIds && selectedContextIds.length > 0
+      ? allContexts.filter(c => selectedContextIds.includes(c.id))
+      : allContexts.slice(0, 5);
+
+    for (const { name, prompt } of selectedContexts) {
+      try {
+        const sentence = await generateOneSentenceAPI(effectiveApiKey, config, word, name, prompt, lang);
+        if (sentence) {
+          sentences.push(sentence);
+          if (onSentence) onSentence(sentence);
+        }
+      } catch (e) {
+        console.error('[OpenRouter] ❌ Generation failed:', e);
+      }
+    }
+
+    const totalTime = ((performance.now() - totalStartTime) / 1000).toFixed(1);
+    console.log(`[OpenRouter] ✅ 生成完成: ${sentences.length} 個例句，總耗時 ${totalTime}s`);
+    setIsGenerating(false);
+    return sentences;
+  }, [effectiveApiKey]);
+
+  const regenerateSingle = useCallback(async (
+    word: string,
+    lang: string,
+    contextId: string
+  ): Promise<Sentence | null> => {
+    if (!effectiveApiKey) return null;
+    const ctx = allContexts.find(c => c.id === contextId);
+    if (!ctx) return null;
+    const config = langConfigs[lang];
+    console.log(`[OpenRouter] 🔄 重新生成: "${word}" [${ctx.name}]`);
+    try {
+      return await generateOneSentenceAPI(effectiveApiKey, config, word, ctx.name, ctx.prompt, lang);
+    } catch (e) {
+      console.error('[OpenRouter] ❌ Regenerate failed:', e);
+      return null;
+    }
+  }, [effectiveApiKey]);
+
+  return {
+    isReady,
+    isLoading: false,
+    isGenerating,
+    progress: null as LoadingProgress | null,
+    error: effectiveApiKey ? null : '請輸入 OpenRouter API Key',
+    currentModel: 'openrouter-qwen3-4b',
+    loadingModelName: null as string | null,
+    apiKey,
+    hasServerKey,
+    saveApiKey,
+    generateSentences,
+    regenerateSingle,
   };
 }
 

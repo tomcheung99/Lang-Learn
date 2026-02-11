@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, Settings2, Check, RefreshCw } from 'lucide-react';
-import { useWebLLM, playAudio, useHistory, useTheme, langConfigs, availableModels, allContexts, type Sentence } from '@/lib/llm';
+import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, Settings2, Check, RefreshCw, Cloud, Monitor, Key, Eye, EyeOff } from 'lucide-react';
+import { useWebLLM, useOpenRouter, playAudio, useHistory, useTheme, langConfigs, availableModels, allContexts, type Sentence, type BackendMode } from '@/lib/llm';
 
 export default function Home() {
   const [input, setInput] = useState('');
@@ -18,23 +18,43 @@ export default function Home() {
     allContexts.slice(0, 5).map(c => c.id)
   );
   const [regeneratingIdx, setRegeneratingIdx] = useState<number | null>(null);
+  const [backendMode, setBackendMode] = useState<BackendMode>('webllm');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
   
-  const { 
-    isReady, 
-    isLoading, 
-    isGenerating,
-    progress, 
-    error, 
-    currentModel,
-    loadingModelName,
-    loadModel,
-    generateSentences,
-    regenerateSingle 
-  } = useWebLLM();
+  const webllm = useWebLLM();
+  const openrouter = useOpenRouter();
+
+  // 統一後端介面
+  const backend = backendMode === 'webllm' ? {
+    isReady: webllm.isReady,
+    isLoading: webllm.isLoading,
+    isGenerating: webllm.isGenerating,
+    progress: webllm.progress,
+    error: webllm.error,
+    currentModel: webllm.currentModel,
+    loadingModelName: webllm.loadingModelName,
+    generateSentences: webllm.generateSentences,
+    regenerateSingle: webllm.regenerateSingle,
+  } : {
+    isReady: openrouter.isReady,
+    isLoading: openrouter.isLoading,
+    isGenerating: openrouter.isGenerating,
+    progress: openrouter.progress,
+    error: openrouter.error,
+    currentModel: openrouter.currentModel,
+    loadingModelName: openrouter.loadingModelName,
+    generateSentences: openrouter.generateSentences,
+    regenerateSingle: openrouter.regenerateSingle,
+  };
+
+  const { isReady, isLoading, isGenerating, progress, error, currentModel, loadingModelName } = backend;
   const { history, addToHistory, clearHistory, isClient } = useHistory();
   const { theme, toggleTheme, mounted } = useTheme();
 
-  const currentModelConfig = availableModels.find(m => m.id === currentModel);
+  const currentModelConfig = backendMode === 'webllm' 
+    ? availableModels.find(m => m.id === currentModel)
+    : { name: 'Qwen3 4B (API)', description: 'OpenRouter 雲端 API，任何裝置可用（$0.02/百萬 tokens）', size: '雲端' };
 
   const handleSearch = useCallback(async () => {
     if (!input.trim() || !isReady) return;
@@ -59,10 +79,10 @@ export default function Home() {
       });
     };
 
-    await generateSentences(word, selectedLang, selectedContexts, onSentence);
+    await backend.generateSentences(word, selectedLang, selectedContexts, onSentence);
 
     addToHistory(word, selectedLang);
-  }, [input, selectedLang, isReady, generateSentences, addToHistory, currentModelConfig, selectedContexts]);
+  }, [input, selectedLang, isReady, backend.generateSentences, addToHistory, currentModelConfig, selectedContexts]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSearch();
@@ -77,7 +97,7 @@ export default function Home() {
   const handleModelChange = async (modelId: string) => {
     setShowModelSelector(false);
     setResult(null);
-    await loadModel(modelId);
+    await webllm.loadModel(modelId);
   };
 
   const toggleContext = (contextId: string) => {
@@ -102,7 +122,7 @@ export default function Home() {
     if (!ctx) return;
 
     setRegeneratingIdx(idx);
-    const newSentence = await regenerateSingle(result.word, selectedLang, ctx.id);
+    const newSentence = await backend.regenerateSingle(result.word, selectedLang, ctx.id);
     
     if (newSentence) {
       setResult(prev => {
@@ -113,7 +133,7 @@ export default function Home() {
       });
     }
     setRegeneratingIdx(null);
-  }, [result, isReady, isGenerating, selectedLang, regenerateSingle]);
+  }, [result, isReady, isGenerating, selectedLang, backend.regenerateSingle]);
 
   // 全部重新生成
   const handleRegenerateAll = useCallback(async () => {
@@ -163,7 +183,91 @@ export default function Home() {
           </p>
         </header>
 
-        {/* Model Selector */}
+        {/* Backend Mode Toggle */}
+        <div className="mb-4 flex gap-2">
+          <button
+            onClick={() => { setBackendMode('webllm'); setResult(null); }}
+            className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all duration-200
+                       ${backendMode === 'webllm'
+                         ? 'bg-[var(--accent)]/10 border-[var(--accent)] text-[var(--accent)]'
+                         : 'bg-[var(--card)] border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]'}`}
+          >
+            <Monitor className="w-4 h-4" />
+            <span className="text-sm font-medium">本地模型</span>
+          </button>
+          <button
+            onClick={() => { setBackendMode('openrouter'); setResult(null); }}
+            className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all duration-200
+                       ${backendMode === 'openrouter'
+                         ? 'bg-[var(--accent)]/10 border-[var(--accent)] text-[var(--accent)]'
+                         : 'bg-[var(--card)] border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]'}`}
+          >
+            <Cloud className="w-4 h-4" />
+            <span className="text-sm font-medium">雲端 API</span>
+          </button>
+        </div>
+
+        {/* OpenRouter API Key Input */}
+        {backendMode === 'openrouter' && !openrouter.hasServerKey && (
+          <div className="mb-4 p-4 bg-[var(--card)] border border-[var(--border)] rounded-xl animate-fade-in">
+            <div className="flex items-center gap-2 mb-3">
+              <Key className="w-4 h-4 text-[var(--accent)]" />
+              <span className="text-sm font-medium">OpenRouter API Key</span>
+              {openrouter.isReady && (
+                <span className="ml-auto text-xs text-green-500 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                  已設定
+                </span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  value={apiKeyInput || openrouter.apiKey}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder="sk-or-v1-..."
+                  className="w-full px-3 py-2 pr-10 text-sm bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg
+                             placeholder-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent)]"
+                />
+                <button
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                >
+                  {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  const key = apiKeyInput || openrouter.apiKey;
+                  openrouter.saveApiKey(key);
+                  setApiKeyInput('');
+                }}
+                className="px-4 py-2 text-sm font-medium bg-[var(--accent)] text-[var(--bg-primary)] rounded-lg
+                           hover:opacity-90 transition-opacity"
+              >
+                儲存
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-[var(--text-tertiary)]">
+              免費取得：<a href="https://openrouter.ai/keys" target="_blank" rel="noopener" className="text-[var(--accent)] underline">openrouter.ai/keys</a>
+              　Qwen3 4B 價格：<span className="text-[var(--accent)]">$0.02/百萬 tokens</span>（充值 $1 可用很久）
+            </p>
+          </div>
+        )}
+
+        {/* Server API Key Active Message */}
+        {backendMode === 'openrouter' && openrouter.hasServerKey && (
+          <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-xl animate-fade-in">
+            <div className="flex items-center gap-2 text-sm text-green-600">
+              <span className="w-2 h-2 rounded-full bg-green-500" />
+              已使用伺服器端 API Key，無需手動設定
+            </div>
+          </div>
+        )}
+
+        {/* Model Selector (only for WebLLM) */}
+        {backendMode === 'webllm' && (
         <div className="mb-6 relative">
           <button
             onClick={() => setShowModelSelector(!showModelSelector)}
@@ -223,6 +327,7 @@ export default function Home() {
             </div>
           )}
         </div>
+        )}
 
         {/* Model Status */}
         <div className={`mb-6 inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm w-full justify-center ${
@@ -250,18 +355,22 @@ export default function Home() {
           ) : isReady ? (
             <>
               <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              {currentModelConfig?.name} 已就緒
+              {backendMode === 'openrouter' ? (
+                <><Cloud className="w-3.5 h-3.5" /> Qwen3 4B (OpenRouter) 已就緒</>
+              ) : (
+                <>{currentModelConfig?.name} 已就緒</>
+              )}
             </>
           ) : (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              初始化中...
+              {backendMode === 'openrouter' ? '請輸入 API Key...' : '初始化中...'}
             </>
           )}
         </div>
 
-        {/* Loading Progress */}
-        {isLoading && progress && (
+        {/* Loading Progress (WebLLM only) */}
+        {backendMode === 'webllm' && isLoading && progress && (
           <div className="mb-8 p-6 bg-[var(--card)] border border-[var(--border)] rounded-2xl animate-fade-in">
             <div className="flex items-center gap-3 mb-4">
               <Download className="w-6 h-6 animate-bounce text-[var(--accent)]" />
@@ -562,7 +671,7 @@ export default function Home() {
         <footer className="mt-12 text-center text-[var(--text-tertiary)] text-sm">
           <p className="flex items-center justify-center gap-2">
             <Sparkles className="w-4 h-4" />
-            Powered by WebLLM
+            Powered by {backendMode === 'webllm' ? 'WebLLM' : 'OpenRouter API'}
           </p>
           <p className="mt-2">支援：日文 🇯🇵 | 英文 🇬🇧 | 中文 🇹🇼</p>
         </footer>
