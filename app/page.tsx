@@ -24,7 +24,8 @@ export default function Home() {
   const [showMobileBanner, setShowMobileBanner] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   
-  const webllm = useWebLLM();
+  // 手機上不自動載入 WebLLM，避免 OOM 崩潰
+  const webllm = useWebLLM(false); // 始終不自動載入，由 useEffect 控制
   const openrouter = useOpenRouter();
 
   // 自動偵測裝置並切換到雲端（Option A: 保守策略）
@@ -35,13 +36,19 @@ export default function Home() {
     const userPreference = localStorage.getItem('lang-learn-backend-preference');
     
     if (!userPreference && shouldUseCloud()) {
-      // 首次使用 + 裝置不適合 → 自動切換到雲端
+      // 首次使用 + 裝置不適合 → 自動切換到雲端，不載入 WebLLM
       setBackendMode('openrouter');
       setShowMobileBanner(true);
       console.log('[Auto-detect] 偵測到手機/低記憶體裝置，自動切換到雲端 API 模式');
-    } else if (userPreference) {
-      setBackendMode(userPreference as BackendMode);
+    } else if (userPreference === 'openrouter') {
+      setBackendMode('openrouter');
+      // 不載入 WebLLM
+    } else {
+      // 本地模式：手動載入 WebLLM
+      setBackendMode('webllm');
+      webllm.loadModel('qwen3-1.7b');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 統一後端介面
@@ -218,6 +225,10 @@ export default function Home() {
                   setResult(null); 
                   setShowMobileBanner(false);
                   if (typeof window !== 'undefined') localStorage.setItem('lang-learn-backend-preference', 'webllm');
+                  // 切換到本地時載入模型
+                  if (!webllm.isReady && !webllm.isLoading) {
+                    webllm.loadModel(webllm.currentModel || 'qwen3-1.7b');
+                  }
                 }}
                 className={`flex-1 flex items-center justify-center gap-1.5 p-2.5 rounded-lg border transition-all duration-200 text-sm
                            ${backendMode === 'webllm'
@@ -233,6 +244,8 @@ export default function Home() {
                   setResult(null); 
                   setShowMobileBanner(false);
                   if (typeof window !== 'undefined') localStorage.setItem('lang-learn-backend-preference', 'openrouter');
+                  // 切換到雲端時卸載 WebLLM 釋放記憶體
+                  webllm.unloadModel();
                 }}
                 className={`flex-1 flex items-center justify-center gap-1.5 p-2.5 rounded-lg border transition-all duration-200 text-sm
                            ${backendMode === 'openrouter'

@@ -1,7 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import * as webllm from '@mlc-ai/web-llm';
+// 延遲載入 WebLLM — 避免在手機上 import 巨大的 WASM 模組導致記憶體爆滿
+// 只有在真正需要時才 dynamic import
+let webllmModule: typeof import('@mlc-ai/web-llm') | null = null;
+async function getWebLLM() {
+  if (!webllmModule) {
+    webllmModule = await import('@mlc-ai/web-llm');
+  }
+  return webllmModule;
+}
 
 // ===== 裝置能力檢測 =====
 export function isMobile(): boolean {
@@ -329,7 +337,8 @@ async function generateOneSentence(
 }
 
 // WebLLM Hook
-export function useWebLLM() {
+// autoLoad: 是否自動載入模型（手機上應設為 false 避免 OOM 崩潰）
+export function useWebLLM(autoLoad = true) {
   const [isReady, setIsReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -372,8 +381,11 @@ export function useWebLLM() {
       const loadStartTime = performance.now();
       console.log(`[WebLLM] 開始載入模型: ${modelConfig.name} (${modelConfig.modelId})`);
       
+      // 延遲載入 WebLLM 模組，避免手機上不必要的記憶體佔用
+      const webllmLib = await getWebLLM();
+      
       // 使用 CreateMLCEngine API
-      const engine = await webllm.CreateMLCEngine(modelConfig.modelId, {
+      const engine = await webllmLib.CreateMLCEngine(modelConfig.modelId, {
         initProgressCallback: (report: any) => {
           if (report) {
             setProgress({
@@ -418,10 +430,34 @@ export function useWebLLM() {
     }
   }, [isClient]);
 
-  // 初始載入默認模型
+  // 卸載模型（釋放記憶體，切換到雲端時使用）
+  const unloadModel = useCallback(async () => {
+    if (chatRef.current) {
+      try {
+        await chatRef.current.unload();
+        console.log('[WebLLM] 🗑️ 模型已卸載，釋放記憶體');
+      } catch (e) {
+        console.warn('Error unloading engine:', e);
+      }
+      chatRef.current = null;
+    }
+    setIsReady(false);
+    setError(null);
+    setProgress(null);
+  }, []);
+
+  // 初始載入默認模型（僅在 autoLoad=true 且非手機時）
   useEffect(() => {
+    if (!autoLoad) {
+      console.log('[WebLLM] ⏭️ 跳過自動載入（autoLoad=false）');
+      return;
+    }
+    if (shouldUseCloud()) {
+      console.log('[WebLLM] ⏭️ 跳過自動載入（偵測到手機/低記憶體裝置）');
+      return;
+    }
     loadModel('qwen3-1.7b');
-  }, [loadModel]);
+  }, [loadModel, autoLoad]);
 
   const generateSentences = useCallback(async (
     word: string,
@@ -504,6 +540,7 @@ export function useWebLLM() {
     currentModel,
     loadingModelName,
     loadModel,
+    unloadModel,
     generateSentences,
     regenerateSingle,
     deviceInfo: {
