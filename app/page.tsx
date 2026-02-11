@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, Settings2, Check, RefreshCw, Cloud, Monitor, Key, Eye, EyeOff } from 'lucide-react';
-import { useWebLLM, useOpenRouter, playAudio, useHistory, useTheme, langConfigs, availableModels, openRouterModels, allContexts, type Sentence, type BackendMode } from '@/lib/llm';
+import { useState, useCallback, useEffect } from 'react';
+import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, Settings2, Check, RefreshCw, Cloud, Monitor, Key, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { useWebLLM, useOpenRouter, playAudio, useHistory, useTheme, langConfigs, availableModels, openRouterModels, allContexts, shouldUseCloud, type Sentence, type BackendMode } from '@/lib/llm';
 
 export default function Home() {
   const [input, setInput] = useState('');
@@ -21,9 +21,27 @@ export default function Home() {
   const [backendMode, setBackendMode] = useState<BackendMode>('webllm');
   const [showApiKey, setShowApiKey] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
+  const [showMobileBanner, setShowMobileBanner] = useState(false);
   
   const webllm = useWebLLM();
   const openrouter = useOpenRouter();
+
+  // 自動偵測裝置並切換到雲端（Option A: 保守策略）
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    // 檢查使用者是否手動設定過偏好
+    const userPreference = localStorage.getItem('lang-learn-backend-preference');
+    
+    if (!userPreference && shouldUseCloud()) {
+      // 首次使用 + 裝置不適合 → 自動切換到雲端
+      setBackendMode('openrouter');
+      setShowMobileBanner(true);
+      console.log('[Auto-detect] 偵測到手機/低記憶體裝置，自動切換到雲端 API 模式');
+    } else if (userPreference) {
+      setBackendMode(userPreference as BackendMode);
+    }
+  }, []);
 
   // 統一後端介面
   const backend = backendMode === 'webllm' ? {
@@ -186,7 +204,12 @@ export default function Home() {
         {/* Backend Mode Toggle */}
         <div className="mb-4 flex gap-2">
           <button
-            onClick={() => { setBackendMode('webllm'); setResult(null); }}
+            onClick={() => { 
+              setBackendMode('webllm'); 
+              setResult(null); 
+              setShowMobileBanner(false);
+              if (typeof window !== 'undefined') localStorage.setItem('lang-learn-backend-preference', 'webllm');
+            }}
             className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all duration-200
                        ${backendMode === 'webllm'
                          ? 'bg-[var(--accent)]/10 border-[var(--accent)] text-[var(--accent)]'
@@ -196,7 +219,12 @@ export default function Home() {
             <span className="text-sm font-medium">本地模型</span>
           </button>
           <button
-            onClick={() => { setBackendMode('openrouter'); setResult(null); }}
+            onClick={() => { 
+              setBackendMode('openrouter'); 
+              setResult(null); 
+              setShowMobileBanner(false);
+              if (typeof window !== 'undefined') localStorage.setItem('lang-learn-backend-preference', 'openrouter');
+            }}
             className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all duration-200
                        ${backendMode === 'openrouter'
                          ? 'bg-[var(--accent)]/10 border-[var(--accent)] text-[var(--accent)]'
@@ -206,6 +234,29 @@ export default function Home() {
             <span className="text-sm font-medium">雲端 API</span>
           </button>
         </div>
+
+        {/* Mobile Device Warning Banner */}
+        {showMobileBanner && backendMode === 'openrouter' && (
+          <div className="mb-4 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl animate-fade-in">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-yellow-600 mb-1">
+                  偵測到手機裝置或低記憶體
+                </p>
+                <p className="text-xs text-[var(--text-secondary)]">
+                  為避免崩潰，已自動切換至「雲端 API」模式。您也可以手動切換回「本地模型」（高階使用者，自負風險）。
+                </p>
+              </div>
+              <button
+                onClick={() => setShowMobileBanner(false)}
+                className="p-1 hover:bg-yellow-500/20 rounded transition-colors"
+              >
+                <X className="w-4 h-4 text-yellow-600" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* OpenRouter API Key Input */}
         {backendMode === 'openrouter' && !openrouter.hasServerKey && (

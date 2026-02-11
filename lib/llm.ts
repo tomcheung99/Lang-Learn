@@ -3,6 +3,53 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as webllm from '@mlc-ai/web-llm';
 
+// ===== 裝置能力檢測 =====
+export function isMobile(): boolean {
+  if (typeof window === 'undefined') return false;
+  // 檢測 UA 和螢幕尺寸
+  const ua = navigator.userAgent.toLowerCase();
+  const mobileKeywords = ['mobile', 'android', 'iphone', 'ipad', 'ipod', 'blackberry', 'windows phone'];
+  const isMobileUA = mobileKeywords.some(keyword => ua.includes(keyword));
+  const isSmallScreen = window.innerWidth <= 768;
+  return isMobileUA || isSmallScreen;
+}
+
+export function hasWebGPU(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return 'gpu' in navigator;
+}
+
+export function getDeviceMemoryGB(): number | null {
+  if (typeof navigator === 'undefined') return null;
+  // @ts-ignore - deviceMemory is experimental
+  return navigator.deviceMemory || null;
+}
+
+export async function hasEnoughStorage(minBytes: number): Promise<boolean> {
+  if (typeof navigator === 'undefined' || !navigator.storage?.estimate) return true; // 無法檢測就假設夠用
+  try {
+    const estimate = await navigator.storage.estimate();
+    const available = (estimate.quota || 0) - (estimate.usage || 0);
+    return available >= minBytes;
+  } catch {
+    return true; // 檢測失敗就假設夠用
+  }
+}
+
+export function shouldUseCloud(): boolean {
+  const mobile = isMobile();
+  const hasGPU = hasWebGPU();
+  const memory = getDeviceMemoryGB();
+  
+  // 手機或沒有 WebGPU → 建議用雲端
+  if (mobile || !hasGPU) return true;
+  
+  // 記憶體小於 4GB → 建議用雲端
+  if (memory !== null && memory < 4) return true;
+  
+  return false;
+}
+
 // 類型定義
 export interface Sentence {
   original: string;
@@ -64,13 +111,13 @@ export interface OpenRouterModelConfig {
 }
 
 export const openRouterModels: OpenRouterModelConfig[] = [
-  {
-    id: 'qwen3-4b',
-    name: 'Qwen3 4B',
-    description: '小巧高效，適合快速生成',
-    modelId: 'qwen/qwen3-4b',
-    pricing: '$0.02/M',
-  },
+  // {
+  //   id: 'qwen3-4b',
+  //   name: 'Qwen3 4B',
+  //   description: '小巧高效，適合快速生成',
+  //   modelId: 'qwen/qwen3-4b',
+  //   pricing: '$0.02/M',
+  // },
   {
     id: 'qwen3-8b',
     name: 'Qwen3 8B',
@@ -305,6 +352,13 @@ export function useWebLLM() {
       setError(null);
       setLoadingModelName(modelConfig.name);
       
+      // 檢查儲存空間（模型約需 1-3GB）
+      const modelSizeBytes = modelConfig.size.includes('1.3GB') ? 1.3e9 : 2.2e9;
+      const hasStorage = await hasEnoughStorage(modelSizeBytes * 1.5); // 預留 50% buffer
+      if (!hasStorage) {
+        throw new Error('儲存空間不足，無法下載模型。建議使用雲端 API 模式。');
+      }
+      
       // 如果已有模型，先卸載
       if (chatRef.current) {
         try {
@@ -339,20 +393,24 @@ export function useWebLLM() {
       setError(null);
     } catch (err: any) {
       console.error('WebLLM init failed:', err);
-      // 如果是模型不存在錯誤，嘗試使用第一個可用的模型
-      if (err.message && err.message.includes('Cannot find model')) {
-        setError('模型載入失敗，將使用 Qwen3 1.7B');
-        // 遞迴調用，改用備選模型
-        if (modelId !== 'qwen3-1.7b') {
-          setTimeout(() => loadModel('qwen3-1.7b'), 1000);
-        } else {
-          setError('模型載入失敗：沒有可用的備選模型');
-          setIsReady(false);
-        }
+      
+      // 友善化錯誤訊息
+      let friendlyError = err.message || '模型載入失敗';
+      
+      if (friendlyError.includes('GPU') || friendlyError.includes('WebGPU')) {
+        friendlyError = '❌ 此裝置不支援 WebGPU，請使用「雲端 API」模式';
+      } else if (friendlyError.includes('儲存空間')) {
+        friendlyError = `❌ ${friendlyError}`; // 已經是友善訊息
+      } else if (friendlyError.includes('memory') || friendlyError.toLowerCase().includes('oom')) {
+        friendlyError = '❌ 記憶體不足，建議使用「雲端 API」模式或選擇較小的模型';
+      } else if (friendlyError.includes('Cannot find model')) {
+        friendlyError = `❌ 模型載入失敗：${modelConfig.name} 不存在`;
       } else {
-        setError(err.message || '模型載入失敗');
-        setIsReady(false);
+        friendlyError = `❌ ${friendlyError}`;
       }
+      
+      setError(friendlyError);
+      setIsReady(false);
     } finally {
       setIsLoading(false);
       setProgress(null);
@@ -447,7 +505,13 @@ export function useWebLLM() {
     loadingModelName,
     loadModel,
     generateSentences,
-    regenerateSingle 
+    regenerateSingle,
+    deviceInfo: {
+      isMobile: isMobile(),
+      hasWebGPU: hasWebGPU(),
+      memoryGB: getDeviceMemoryGB(),
+      shouldUseCloud: shouldUseCloud(),
+    }
   };
 }
 
@@ -591,30 +655,35 @@ export function useOpenRouter() {
 
     setIsGenerating(true);
     const totalStartTime = performance.now();
-    console.log(`[OpenRouter] 🔄 開始生成例句: "${word}" (${lang})`);
+    console.log(`[OpenRouter] 🔄 開始並行生成例句: "${word}" (${lang})`);
 
-    const sentences: Sentence[] = [];
     const config = langConfigs[lang];
     const selectedContexts = selectedContextIds && selectedContextIds.length > 0
       ? allContexts.filter(c => selectedContextIds.includes(c.id))
       : allContexts.slice(0, 5);
 
-    for (const { name, prompt } of selectedContexts) {
+    const modelConfig = openRouterModels.find(m => m.id === currentOpenRouterModel);
+    const modelIdToUse = modelConfig?.modelId || 'qwen/qwen3-8b';
+
+    // 🚀 Batch Mode: 並行發送所有 API 請求
+    const promises = selectedContexts.map(async ({ name, prompt }) => {
       try {
-        const modelConfig = openRouterModels.find(m => m.id === currentOpenRouterModel);
-        const modelIdToUse = modelConfig?.modelId || 'qwen/qwen3-8b';
         const sentence = await generateOneSentenceAPI(effectiveApiKey, config, word, name, prompt, lang, modelIdToUse);
-        if (sentence) {
-          sentences.push(sentence);
-          if (onSentence) onSentence(sentence);
+        if (sentence && onSentence) {
+          onSentence(sentence); // 即時回傳每個完成的結果
         }
+        return sentence;
       } catch (e) {
-        console.error('[OpenRouter] ❌ Generation failed:', e);
+        console.error(`[OpenRouter] ❌ [${name}] 生成失敗:`, e);
+        return null;
       }
-    }
+    });
+
+    const results = await Promise.all(promises);
+    const sentences = results.filter((s): s is Sentence => s !== null);
 
     const totalTime = ((performance.now() - totalStartTime) / 1000).toFixed(1);
-    console.log(`[OpenRouter] ✅ 生成完成: ${sentences.length} 個例句，總耗時 ${totalTime}s`);
+    console.log(`[OpenRouter] ✅ 並行生成完成: ${sentences.length}/${selectedContexts.length} 個例句，總耗時 ${totalTime}s`);
     setIsGenerating(false);
     return sentences;
   }, [effectiveApiKey, currentOpenRouterModel]);
