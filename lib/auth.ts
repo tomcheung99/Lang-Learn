@@ -48,9 +48,9 @@ export function useAuth() {
 
   // 发送 Magic Link
   const signInWithOtp = async (email: string) => {
-    const redirectUrl = typeof window !== 'undefined' 
-      ? `${window.location.origin}/auth/callback`
-      : '/auth/callback'
+    // 使用生產環境 URL（避免 localhost 問題）
+    const redirectUrl = process.env.NEXT_PUBLIC_SITE_URL || 
+      (typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : '/auth/callback')
     
     const { error } = await supabase.auth.signInWithOtp({
       email,
