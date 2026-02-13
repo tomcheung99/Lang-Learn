@@ -1,8 +1,11 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, ChevronUp, Settings2, Check, RefreshCw, Cloud, Monitor, Key, Eye, EyeOff, AlertTriangle, Sliders } from 'lucide-react';
+import Link from 'next/link';
+import { Search, Volume2, BookOpen, Sparkles, History, X, Sun, Moon, Loader2, Download, Cpu, ChevronDown, ChevronUp, Settings2, Check, RefreshCw, Cloud, Monitor, Key, Eye, EyeOff, AlertTriangle, Sliders, Heart, User } from 'lucide-react';
 import { useWebLLM, useOpenRouter, playAudio, useHistory, useTheme, langConfigs, availableModels, openRouterModels, allContexts, shouldUseCloud, type Sentence, type BackendMode } from '@/lib/llm';
+import { useAuth, useFavorites } from '@/lib/auth';
+import { Favorite } from '@/lib/supabase';
 
 export default function Home() {
   const [input, setInput] = useState('');
@@ -27,6 +30,9 @@ export default function Home() {
   // 手機上不自動載入 WebLLM，避免 OOM 崩潰
   const webllm = useWebLLM(false); // 始終不自動載入，由 useEffect 控制
   const openrouter = useOpenRouter();
+  const { user, loading: authLoading, signOut } = useAuth();
+  const { addFavorite } = useFavorites();
+  const [savingFavorite, setSavingFavorite] = useState<number | null>(null);
 
   // 自動偵測裝置並切換到雲端（Option A: 保守策略）
   useEffect(() => {
@@ -141,7 +147,35 @@ export default function Home() {
     });
   };
 
-  // 重新生成單條例句
+  // 保存例句到收藏
+  const handleSaveFavorite = async (sentence: Sentence, idx: number) => {
+    if (!user) {
+      alert('請先登入才能收藏例句');
+      return;
+    }
+    
+    setSavingFavorite(idx);
+    
+    const { error } = await addFavorite({
+      word: result?.word || '',
+      sentence_original: sentence.original,
+      sentence_translation: sentence.translation,
+      context: sentence.context,
+      lang: selectedLang,
+      model: currentModel || '',
+      tags: [sentence.context],
+      notes: '',
+      is_exported: false
+    });
+    
+    if (error) {
+      alert('收藏失敗：' + error.message);
+    } else {
+      alert('已收藏！');
+    }
+    
+    setSavingFavorite(null);
+  };
   const handleRegenerateSingle = useCallback(async (idx: number) => {
     if (!result || !isReady || isGenerating) return;
     const sentence = result.sentences[idx];
@@ -189,13 +223,50 @@ export default function Home() {
             <Sparkles className="w-6 h-6 text-[var(--accent)]" />
             <h1 className="text-xl font-bold tracking-tight">一字學習</h1>
           </div>
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
-            aria-label="Toggle theme"
-          >
-            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* 收藏連結 */}
+            <Link
+              href="/favorites"
+              className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors flex items-center gap-1.5 text-sm"
+            >
+              <Heart className="w-5 h-5 text-red-500" />
+              <span className="hidden sm:inline">收藏</span>
+            </Link>
+            
+            {/* 登入/登出 */}
+            {authLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : user ? (
+              <div className="flex items-center gap-2">
+                <span className="hidden sm:inline text-sm text-[var(--text-secondary)]">
+                  {user.email?.split('@')[0]}
+                </span>
+                <button
+                  onClick={signOut}
+                  className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+                  title="登出"
+                >
+                  <User className="w-5 h-5" />
+                </button>
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors flex items-center gap-1.5 text-sm"
+              >
+                <User className="w-5 h-5" />
+                <span className="hidden sm:inline">登入</span>
+              </Link>
+            )}
+            
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
+          </div>
         </header>
 
         {/* Collapsible Settings Header */}
@@ -675,6 +746,15 @@ export default function Home() {
                       </div>
                       
                       <div className="flex flex-col gap-2">
+                      <button
+                        onClick={() => handleSaveFavorite(sentence, idx)}
+                        disabled={savingFavorite === idx}
+                        className={`p-2 rounded-lg transition-all duration-200
+                                   ${savingFavorite === idx ? 'opacity-50' : 'bg-[var(--bg-tertiary)] hover:bg-red-500/20'}`}
+                        title="收藏例句"
+                      >
+                        <Heart className={`w-4 h-4 ${savingFavorite === idx ? 'animate-pulse' : 'text-red-500'}`} />
+                      </button>
                       <button
                         onClick={() => handleRegenerateSingle(idx)}
                         disabled={regeneratingIdx !== null || isGenerating}
