@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase, User } from './supabase'
+import { supabase, User, Favorite } from './supabase'
 import { User as SupabaseUser } from '@supabase/supabase-js'
 
 export function useAuth() {
@@ -48,10 +48,14 @@ export function useAuth() {
 
   // 发送 Magic Link
   const signInWithOtp = async (email: string) => {
+    const redirectUrl = typeof window !== 'undefined' 
+      ? `${window.location.origin}/auth/callback`
+      : '/auth/callback'
+    
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`
+        emailRedirectTo: redirectUrl
       }
     })
     return { error }
